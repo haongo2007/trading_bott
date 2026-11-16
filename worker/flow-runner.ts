@@ -1,6 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { Locator, Page } from "playwright";
 import { prisma } from "@/lib/prisma";
 import { decrypt } from "@/lib/crypto";
 import { parseBalance } from "@/lib/balance";
@@ -10,6 +10,7 @@ import {
 } from "@/lib/flow";
 import { log, newAccountContext } from "./browser-pool";
 import { ensureLoggedIn, saveStorageState } from "./login";
+import { locate } from "./locate";
 
 const STORAGE_DIR = process.env.STORAGE_DIR ?? "storage";
 const DEFAULT_TIMEOUT = 10_000;
@@ -95,7 +96,7 @@ export async function runGraph(page: Page, graph: FlowGraph, vars: FlowVars, opt
       const t0 = Date.now();
       let handle = "next";
       try {
-        const out = await executeNode(page, node, vars, opts.dryRun, opts.isCancelled, state);
+        const out = await executeNode(page, node, vars, opts.dryRun, opts.isCancelled, state, earlySkipSelector(graph, node, vars));
         entry.status = out.skipped ? "skipped" : "ok";
         entry.message = out.message;
         if (out.handle) handle = out.handle;
@@ -242,6 +243,53 @@ function friendlyError(e: unknown, node: FlowNode): string {
   return msg.split("\n")[0];
 }
 
+const WAIT_NODES = new Set(["click", "fill", "waitFor", "readText"]);
+
+/**
+ * Bỏ qua sớm: với khối “Không bắt buộc” (không phải thao tác đặt lệnh), nếu phần tử của bước NGAY SAU
+ * đã hiện thì không cần chờ hết timeout của bước này — bỏ qua và đi tiếp.
+ * Trả về selector của bước sau, hoặc null nếu không áp dụng.
+ */
+function earlySkipSelector(graph: FlowGraph, node: FlowNode, vars: FlowVars): string | null {
+  if (!node.data.optional || node.data.critical || !WAIT_NODES.has(node.type)) return null;
+  const nextId = nextNodeId(graph, node.id);
+  const next = nextId ? graph.nodes.find((n) => n.id === nextId) : undefined;
+  if (!next) return null;
+  const nd = next.data;
+  if (next.type === "waitFor" && nd.state === "hidden") return null;
+  if (WAIT_NODES.has(next.type)) return nd.selector?.trim() || null;
+  if (next.type === "order") return nd.amountSelector?.trim() || (vars.direction === "DOWN" ? nd.downSelector : nd.upSelector)?.trim() || null;
+  return null;
+}
+
+/**
+ * Chờ phần tử của bước hiện tại. Nếu có skipSel: đồng thời theo dõi phần tử bước sau,
+ * cái nào xuất hiện trước thì thắng. Nếu cả hai đều không xuất hiện → ném lỗi của bước hiện tại.
+ */
+async function waitOrSkip(
+  page: Page,
+  own: Locator,
+  state: "visible" | "hidden",
+  timeout: number,
+  skipSel: string | null,
+): Promise<"own" | "skip"> {
+  if (!skipSel) {
+    await own.waitFor({ state, timeout });
+    return "own";
+  }
+  // Phần tử của chính bước này đã sẵn sàng → luôn ưu tiên làm bước này
+  if (state === "visible" && (await own.isVisible().catch(() => false))) return "own";
+  const ownP = own.waitFor({ state, timeout }).then(() => "own" as const);
+  const skipP = locate(page, skipSel).waitFor({ state: "visible", timeout }).then(() => "skip" as const);
+  ownP.catch(() => {});
+  skipP.catch(() => {});
+  try {
+    return await Promise.any([ownP, skipP]);
+  } catch {
+    return ownP; // cả hai thất bại → lỗi của bước hiện tại
+  }
+}
+
 async function executeNode(
   page: Page,
   node: FlowNode,
@@ -249,10 +297,15 @@ async function executeNode(
   dryRun: boolean,
   isCancelled: () => Promise<boolean>,
   state: OrderState,
+  skipSel: string | null = null,
 ): Promise<{ message: string; skipped?: boolean; handle?: string }> {
   const d = node.data;
   const timeout = d.timeoutMs ?? DEFAULT_TIMEOUT;
-  const loc = () => page.locator(d.selector!).first();
+  const loc = () => locate(page, d.selector!);
+  const skipped = () => ({
+    message: `Bỏ qua: chưa thấy ${d.selector} nhưng phần tử bước sau (${skipSel}) đã hiện`,
+    skipped: true,
+  });
 
   switch (node.type) {
     case "start":
@@ -269,7 +322,7 @@ async function executeNode(
 
     case "click": {
       const el = loc();
-      await el.waitFor({ state: "visible", timeout });
+      if ((await waitOrSkip(page, el, "visible", timeout, skipSel)) === "skip") return skipped();
       if (d.critical && dryRun) {
         await highlight(page, d.selector!);
         state.orderSkipped = true;
@@ -285,7 +338,7 @@ async function executeNode(
       const value = renderTemplate(raw, vars);
       if (value.includes("{{")) throw new Error(`Biến chưa có giá trị trong “${raw}”`);
       const el = loc();
-      await el.waitFor({ state: "visible", timeout });
+      if ((await waitOrSkip(page, el, "visible", timeout, skipSel)) === "skip") return skipped();
       await el.fill(value, { timeout });
       const shown = /\{\{\s*password\s*\}\}/.test(raw) ? "••••••" : value;
       return { message: `${d.selector} = ${shown}` };
@@ -301,7 +354,7 @@ async function executeNode(
       return { message: d.key! };
 
     case "waitFor":
-      await loc().waitFor({ state: d.state ?? "visible", timeout });
+      if ((await waitOrSkip(page, loc(), d.state ?? "visible", timeout, skipSel)) === "skip") return skipped();
       return { message: `${d.selector} đã ${d.state === "hidden" ? "ẩn" : "hiện"}` };
 
     case "wait": {
@@ -317,7 +370,7 @@ async function executeNode(
 
     case "readText": {
       const el = loc();
-      await el.waitFor({ state: "visible", timeout });
+      if ((await waitOrSkip(page, el, "visible", timeout, skipSel)) === "skip") return skipped();
       const text = (await el.innerText({ timeout })).trim();
       let value: string | number = text;
       if (d.parse === "number") {
@@ -338,12 +391,12 @@ async function executeNode(
       state.orderNodeRan = true;
 
       if (d.amountSelector) {
-        const input = page.locator(d.amountSelector).first();
+        const input = locate(page, d.amountSelector);
         await input.waitFor({ state: "visible", timeout });
         await input.fill(String(amount), { timeout });
       }
       const btnSel = direction === "UP" ? d.upSelector! : d.downSelector!;
-      const btn = page.locator(btnSel).first();
+      const btn = locate(page, btnSel);
       await btn.waitFor({ state: "visible", timeout });
       const label = `${direction === "UP" ? "▲ TĂNG" : "▼ GIẢM"} ${amount.toLocaleString("vi-VN")}`;
 
@@ -357,7 +410,7 @@ async function executeNode(
       state.orderPlaced = true;
       if (d.confirmSelector) {
         try {
-          await page.locator(d.confirmSelector).first().click({ timeout });
+          await locate(page, d.confirmSelector).click({ timeout });
         } catch (e) {
           throw new OrderUncertainError(`Đã bấm ${label} nhưng không bấm được nút xác nhận: ${(e as Error).message.split("\n")[0]}`);
         }
@@ -385,9 +438,7 @@ async function executeNode(
 }
 
 async function highlight(page: Page, selector: string) {
-  await page
-    .locator(selector)
-    .first()
+  await locate(page, selector)
     .evaluate((el: HTMLElement) => {
       el.style.outline = "4px solid #f59e0b";
       el.style.outlineOffset = "2px";

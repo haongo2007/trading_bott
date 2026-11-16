@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { parseBalance } from "@/lib/balance";
 import { log, newAccountContext } from "./browser-pool";
+import { locate } from "./locate";
 
 export type LoginOutcome =
   | { ok: true; via: LoginVia; balance: number | null; balanceText: string | null }
@@ -25,7 +26,7 @@ export const LOGIN_VIA_LABELS: Record<LoginVia, string> = {
 export async function isLoggedIn(page: Page, account: TradingAccount, timeoutMs: number): Promise<boolean> {
   if (account.successSelector) {
     try {
-      await page.locator(account.successSelector).first().waitFor({ state: "visible", timeout: timeoutMs });
+      await locate(page, account.successSelector).waitFor({ state: "visible", timeout: timeoutMs });
       return true;
     } catch {
       return false;
@@ -47,25 +48,25 @@ export async function performFormLogin(page: Page, account: TradingAccount) {
   const timeout = account.loginTimeoutSec * 1000;
   await page.goto(account.loginUrl, { waitUntil: "domcontentloaded", timeout });
 
-  const user = page.locator(usernameSelector).first();
+  const user = locate(page, usernameSelector);
   await user.waitFor({ state: "visible", timeout }).catch(() => {
     throw new Error(`Không tìm thấy ô tên đăng nhập: ${usernameSelector}`);
   });
   await user.fill(decrypt(account.usernameEnc));
 
-  const pass = page.locator(passwordSelector).first();
+  const pass = locate(page, passwordSelector);
   await pass.fill(decrypt(account.passwordEnc), { timeout }).catch(() => {
     throw new Error(`Không tìm thấy ô mật khẩu: ${passwordSelector}`);
   });
 
-  await page.locator(submitSelector).first().click({ timeout }).catch(() => {
+  await locate(page, submitSelector).click({ timeout }).catch(() => {
     throw new Error(`Không bấm được nút đăng nhập: ${submitSelector}`);
   });
 }
 
 export async function readBalance(page: Page, account: TradingAccount) {
   if (!account.balanceSelector) return { balance: null, balanceText: null };
-  const el = page.locator(account.balanceSelector).first();
+  const el = locate(page, account.balanceSelector);
   const text = await el
     .waitFor({ state: "visible", timeout: 10_000 })
     .then(() => el.innerText())

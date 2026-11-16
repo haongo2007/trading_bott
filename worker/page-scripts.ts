@@ -34,10 +34,13 @@ const INSPECT_FN = String.raw`
   var type = el.getAttribute('type');
   if (tag === 'input' && type) c.push('input[type=' + q(type) + ']');
   var text = ((el.innerText || '') + '').trim().replace(/\s+/g, ' ');
-  if (text && text.length <= 40 && ['input', 'textarea', 'select'].indexOf(tag) < 0) c.push(tag + ':has-text(' + q(text) + ')');
   var cls = Array.prototype.filter.call(el.classList, function (k) {
     return k.length < 40 && !/\d{3,}|^(active|hover|focus|selected|disabled|open|show)$/.test(k);
   }).slice(0, 3);
+  var hasText = text && text.length <= 40 && ['input', 'textarea', 'select'].indexOf(tag) < 0;
+  // class + chữ: cụ thể hơn nhiều so với chỉ chữ (tránh khớp khung bao ngoài / bản ẩn)
+  if (hasText && cls.length) c.push(tag + '.' + cls.map(function (k) { return CSS.escape(k); }).join('.') + ':has-text(' + q(text) + ')');
+  if (hasText) c.push(tag + ':has-text(' + q(text) + ')');
   if (cls.length) c.push(tag + '.' + cls.map(function (k) { return CSS.escape(k); }).join('.'));
   var path = [], cur = el;
   while (cur && cur.nodeType === 1 && path.length < 6) {

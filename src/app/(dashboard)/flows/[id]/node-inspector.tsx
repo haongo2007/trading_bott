@@ -241,7 +241,7 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, on
           checked={!!d.optional}
           onChange={(v) => onChange({ optional: v || undefined })}
           title="Không bắt buộc"
-          desc="Nếu khối này lỗi, flow vẫn chạy tiếp (VD: đóng popup quảng cáo)."
+          desc="Nếu khối này lỗi, flow vẫn chạy tiếp (VD: đóng popup quảng cáo). Nếu phần tử của bước ngay sau đã hiện thì bỏ qua luôn, không chờ hết timeout."
         />
       )}
     </fieldset>

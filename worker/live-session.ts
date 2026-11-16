@@ -8,6 +8,7 @@ import type { ClientMsg, LiveMode, RecordedStep, SelectorCandidate, ServerMsg } 
 import { log, newAccountContext, unlockAccount } from "./browser-pool";
 import { ensureLoggedIn, isLoggedIn, readBalance } from "./login";
 import { inspectActiveElement, inspectAtPoint, type InspectResult } from "./page-scripts";
+import { visibleMatches } from "./locate";
 
 const IDLE_MS = Number(process.env.LIVE_IDLE_MINUTES ?? 10) * 60_000;
 // Bỏ khung hình khi mạng phía client chậm. Giữ nhỏ: 4MB ≈ 40 khung JPEG dồn lại = trễ vài giây.
@@ -209,7 +210,8 @@ export class LiveSession {
       case "testSelector": {
         const selector = msg.selector.trim().slice(0, 1024);
         try {
-          const loc = page.locator(selector);
+          // Đếm như cách bot tìm phần tử: chỉ phần tử đang hiển thị, :has-text lấy phần tử trong cùng
+          const loc = visibleMatches(page, selector);
           const count = await loc.count();
           const box = count ? await loc.first().boundingBox() : null;
           this.send({
@@ -271,7 +273,7 @@ export class LiveSession {
   private async rankSelectors(candidates: string[]): Promise<SelectorCandidate[]> {
     const out: SelectorCandidate[] = [];
     for (const selector of candidates.slice(0, 10)) {
-      const count = await this.page.locator(selector).count().catch(() => -1);
+      const count = await visibleMatches(this.page, selector).count().catch(() => -1);
       if (count > 0) out.push({ selector, count });
     }
     return out.sort((a, b) => Number(b.count === 1) - Number(a.count === 1)).slice(0, 6);
