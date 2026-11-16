@@ -1,11 +1,15 @@
 // PM2 — chạy dashboard (Next.js) và worker (Playwright) trên VPS.
 //   pm2 start ecosystem.config.cjs && pm2 save
+// Đổi cổng nếu server đã có app khác dùng: WEB_PORT=3100 pm2 start ecosystem.config.cjs
+// (cổng worker đặt bằng WORKER_PORT trong .env). Nhớ sửa proxy_pass trong Nginx tương ứng.
+const WEB_PORT = process.env.WEB_PORT || 3000;
+
 module.exports = {
   apps: [
     {
       name: "bot-web",
       script: "node_modules/next/dist/bin/next",
-      args: "start -p 3000 -H 127.0.0.1",
+      args: `start -p ${WEB_PORT} -H 127.0.0.1`,
       env: { NODE_ENV: "production" },
       max_memory_restart: "1G",
       time: true,

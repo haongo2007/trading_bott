@@ -2,7 +2,9 @@
 
 Dashboard quản lý bot giao dịch tự động qua trình duyệt (Next.js 16 · Prisma 7 · MySQL · Auth.js v5).
 
-## Chạy local
+## Chạy local (máy dev — MySQL chạy bằng Docker)
+
+> Trên server không cần Docker: xem [deploy/DEPLOY.md](deploy/DEPLOY.md) (Node.js + Nginx + MySQL cài bằng apt).
 
 ```bash
 cp .env.example .env          # điền AUTH_SECRET, ENCRYPTION_KEY, ADMIN_PASSWORD
@@ -65,7 +67,9 @@ selector `#username`, `#password`, `button[type=submit]`, dấu hiệu đăng nh
 npm test   # unit test: số dư, token worker, flow, chiến lược, lịch, báo cáo
 ```
 
-## Production (gợi ý Nginx cho WebSocket)
+## Production
+
+Hướng dẫn đầy đủ (không Docker): [deploy/DEPLOY.md](deploy/DEPLOY.md). Gợi ý Nginx cho WebSocket:
 
 ```nginx
 location /live {
