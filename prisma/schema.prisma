@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ───────────── Auth ─────────────
+
+enum Role {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String?
+  passwordHash String
+  role         Role       @default(OPERATOR)
+  totpSecret   String?    @db.Text // mã hoá, dùng cho 2FA (giai đoạn sau)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  auditLogs    AuditLog[]
+}
+
+// ───────────── Tài khoản truy cập nền tảng ─────────────
+
+enum LoginMethod {
+  FORM // tự điền username/password theo selector
+  SESSION // dùng phiên đăng nhập đã lưu (cookie/localStorage)
+}
+
+enum AccountStatus {
+  UNVERIFIED
+  ACTIVE
+  LOGIN_FAILED
+  DISABLED
+}
+
+model TradingAccount {
+  id           String      @id @default(cuid())
+  name         String // tên gợi nhớ
+  platformName String // tên nền tảng
+  loginUrl     String      @db.VarChar(2048)
+  tradeUrl     String      @db.VarChar(2048) // trang đặt lệnh sau khi đăng nhập
+  usernameEnc  String      @db.Text // AES-256-GCM
+  passwordEnc  String      @db.Text // AES-256-GCM
+  loginMethod  LoginMethod @default(FORM)
+
+  // Selector form đăng nhập — chọn bằng canvas picker (giai đoạn 2) hoặc nhập tay
+  usernameSelector String? @db.VarChar(1024)
+  passwordSelector String? @db.VarChar(1024)
+  submitSelector   String? @db.VarChar(1024)
+  successSelector  String? @db.VarChar(1024) // phần tử chỉ xuất hiện khi đã đăng nhập
+  balanceSelector  String? @db.VarChar(1024) // nơi hiển thị số dư
+
+  storageStateEnc String? @db.LongText // phiên Playwright đã lưu (mã hoá)
+  currency        String  @default("VND")
+  viewportWidth   Int     @default(1366)
+  viewportHeight  Int     @default(768)
+  locale          String  @default("vi-VN")
+  timezone        String  @default("Asia/Ho_Chi_Minh")
+  loginTimeoutSec Int     @default(30)
+  maxLoginRetries Int     @default(2)
+
+  status      AccountStatus @default(UNVERIFIED)
+  lastLoginAt DateTime?
+  lastBalance Decimal?      @db.Decimal(18, 2)
+  lastError   String?       @db.Text
+  notes       String?       @db.Text
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  bots Bot[]
+}
+
+// ───────────── Flow (vẽ trên canvas) ─────────────
+
+model Flow {
+  id        String   @id @default(cuid())
+  name      String
+  version   Int      @default(1)
+  startUrl  String?  @db.VarChar(2048)
+  graph     Json // nodes + edges của React Flow
+  elements  Json // { btnUp: { selectors: [...] }, lblBalance: {...}, ... }
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bots      Bot[]
+}
+
+// ───────────── Bot & chiến lược ─────────────
+
+enum ValueType {
+  AMOUNT
+  PERCENT
+}
+
+enum StakeMode {
+  FIXED
+  PERCENT_BALANCE
+  MARTINGALE
+  ANTI_MARTINGALE
+  SEQUENCE
+}
+
+enum DirectionMode {
+  FIXED
+  FOLLOW_LAST
+  REVERSE_LAST
+  PATTERN
+  RANDOM
+  RULE
+  AI
+}
+
+model Bot {
+  id        String         @id @default(cuid())
+  name      String
+  accountId String
+  account   TradingAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  flowId    String?
+  flow      Flow?          @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  enabled   Boolean        @default(false)
+  dryRun    Boolean        @default(true) // mặc định chạy thử, không đặt lệnh thật
+
+  // Lịch
+  cron            String    @default("0 9 * * *")
+  timezone        String    @default("Asia/Ho_Chi_Minh")
+  windowStart     String? // "09:00"
+  windowEnd       String? // "22:00"
+  lastScheduledAt DateTime? // lần lịch (cron) gần nhất đã tạo lệnh chạy — chống chạy trùng
+
+  // Ngân sách & tiền mỗi lệnh
+  dailyBudget Decimal   @db.Decimal(18, 2)
+  stakeMode   StakeMode @default(FIXED)
+  stakeConfig Json // { base, multiplier, sequence, percent }
+  maxStake    Decimal   @db.Decimal(18, 2)
+
+  // Hướng lệnh
+  directionMode   DirectionMode @default(FIXED)
+  directionConfig Json // { fixed:"UP" } | { pattern:[...] } | { ai:{ model, minConfidence, history } }
+
+  // Điều kiện dừng
+  takeProfitType     ValueType @default(AMOUNT)
+  takeProfitValue    Decimal   @db.Decimal(18, 2)
+  stopLossType       ValueType @default(AMOUNT)
+  stopLossValue      Decimal   @db.Decimal(18, 2)
+  maxConsecutiveLoss Int       @default(5)
+  maxOrdersPerDay    Int       @default(50)
+
+  // Nhịp chạy
+  roundDelaySec  Int     @default(2) // nghỉ giữa 2 lệnh
+  settleDelaySec Int     @default(0) // chờ thêm sau flow trước khi đọc số dư (đợi sàn cập nhật)
+  payoutPercent  Decimal @default(95) @db.Decimal(5, 2) // % trả thưởng khi thắng — dùng cho chạy thử (giả lập)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  runs      BotRun[]
+  commands  Command[]
+
+  @@index([accountId])
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  WAITING_HUMAN
+  COMPLETED
+  STOPPED
+  FAILED
+}
+
+enum StopReason {
+  TAKE_PROFIT
+  STOP_LOSS
+  MAX_CONSECUTIVE_LOSS
+  MAX_ORDERS
+  BUDGET_EXHAUSTED
+  WINDOW_ENDED
+  MANUAL
+  KILL_SWITCH
+  ERROR
+}
+
+model BotRun {
+  id           String      @id @default(cuid())
+  botId        String
+  bot          Bot         @relation(fields: [botId], references: [id], onDelete: Cascade)
+  runDate      DateTime    @db.Date
+  status       RunStatus   @default(QUEUED)
+  stopReason   StopReason?
+  dryRun       Boolean
+  startBalance Decimal?    @db.Decimal(18, 2)
+  endBalance   Decimal?    @db.Decimal(18, 2)
+  targetAmount Decimal?    @db.Decimal(18, 2) // TP quy ra tiền lúc bắt đầu phiên
+  lossLimit    Decimal?    @db.Decimal(18, 2) // SL quy ra tiền lúc bắt đầu phiên
+  pnl          Decimal     @default(0) @db.Decimal(18, 2)
+  error        String?     @db.Text
+  startedAt    DateTime?
+  endedAt      DateTime?
+  orders       Order[]
+  logs         RunLog[]
+
+  @@unique([botId, runDate, dryRun])
+}
+
+enum Direction {
+  UP
+  DOWN
+}
+
+enum OrderResult {
+  PENDING
+  WIN
+  LOSS
+  DRAW
+  UNKNOWN
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  runId         String
+  run           BotRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq           Int
+  direction     Direction
+  amount        Decimal       @db.Decimal(18, 2)
+  result        OrderResult   @default(PENDING)
+  balanceBefore Decimal?      @db.Decimal(18, 2)
+  balanceAfter  Decimal?      @db.Decimal(18, 2)
+  pnl           Decimal?      @db.Decimal(18, 2)
+  screenshot    String?       @db.VarChar(1024)
+  simulated     Boolean       @default(false) // chạy thử: không đặt lệnh thật, kết quả giả lập
+  error         String?       @db.Text
+  placedAt      DateTime      @default(now())
+  settledAt     DateTime?
+  prediction    AiPrediction?
+
+  @@unique([runId, seq])
+}
+
+model AiPrediction {
+  id         String    @id @default(cuid())
+  orderId    String    @unique
+  order      Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  model      String
+  direction  Direction
+  confidence Float
+  reasoning  String?   @db.Text
+  latencyMs  Int
+  createdAt  DateTime  @default(now())
+}
+
+enum LogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+model RunLog {
+  id         String   @id @default(cuid())
+  runId      String
+  run        BotRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  level      LogLevel @default(INFO)
+  step       String?
+  message    String   @db.Text
+  screenshot String?  @db.VarChar(1024)
+  createdAt  DateTime @default(now())
+
+  @@index([runId, createdAt])
+}
+
+enum CommandType {
+  START
+  STOP
+  KILL
+  TEST_LOGIN
+  RUN_FLOW
+}
+
+enum CommandStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+model Command {
+  id        String        @id @default(cuid())
+  botId     String?
+  bot       Bot?          @relation(fields: [botId], references: [id], onDelete: Cascade)
+  accountId String?
+  type      CommandType
+  payload   Json? // VD RUN_FLOW: { flowId, dryRun, loginFirst }
+  status    CommandStatus @default(PENDING)
+  result    String?       @db.Text
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  diff      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+}
+
+// Cài đặt hệ thống dạng key/value (Telegram, lưu trữ...). Giá trị nhạy cảm được mã hoá trước khi lưu.
+model AppSetting {
+  key       String   @id @db.VarChar(100)
+  value     Json
+  updatedAt DateTime @updatedAt
+}

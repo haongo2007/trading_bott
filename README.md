@@ -1,36 +1,87 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bot Trading
 
-## Getting Started
+Dashboard quản lý bot giao dịch tự động qua trình duyệt (Next.js 16 · Prisma 7 · MySQL · Auth.js v5).
 
-First, run the development server:
+## Chạy local
 
 ```bash
+cp .env.example .env          # điền AUTH_SECRET, ENCRYPTION_KEY, ADMIN_PASSWORD
+npm install
+npm run db:up                 # MySQL 8.4 trong Docker, cổng 3317
+# Lần đầu (dev): cho user `bot` quyền tạo shadow DB của Prisma Migrate
+docker compose exec mysql mysql -uroot -prootpass -e "GRANT ALL PRIVILEGES ON *.* TO 'bot'@'%'; FLUSH PRIVILEGES;"
+npm run db:migrate
+npm run db:seed               # tạo admin từ ADMIN_EMAIL / ADMIN_PASSWORD
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Production: dùng `npx prisma migrate deploy` (không cần shadow DB / quyền GRANT ALL).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> ⚠️ `ENCRYPTION_KEY` dùng để mã hoá thông tin đăng nhập sàn. Mất khoá = không giải mã được dữ liệu đã lưu.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Worker (Playwright)
 
-## Learn More
+Tiến trình riêng, chạy song song với Next.js:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npx playwright install chromium   # lần đầu (trên VPS Ubuntu: npx playwright install --with-deps chromium)
+npm run worker                    # hoặc npm run worker:dev (tự reload khi sửa code)
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `GET http://127.0.0.1:3001/health` — trạng thái worker
+- `ws://…:3001/live?token=…` — trình duyệt trực tiếp (token HMAC 2 phút do dashboard cấp)
+- Nhận lệnh `TEST_LOGIN` từ bảng `Command` (claim nguyên tử, khoá theo tài khoản)
+- Ảnh chụp khi lỗi: `storage/screenshots/`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Website bị nhà mạng chặn ở máy local
 
-## Deploy on Vercel
+Trình duyệt mở website sàn chạy **trong worker**. Trên VPS, website được truy cập bằng mạng của VPS — máy bạn chỉ nhận hình ảnh qua canvas, nên chặn ở mạng nhà không ảnh hưởng.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Khi phát triển ở local (worker chạy trên máy bạn), cho Chromium đi qua VPS bằng tunnel SSH:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+ssh -N -D 1080 user@your-vps                     # giữ terminal này mở
+# .env: WORKER_PROXY_SERVER="socks5://127.0.0.1:1080"  rồi khởi động lại worker
+```
+
+Log worker sẽ ghi `Đã khởi động Chromium … (qua proxy socks5://127.0.0.1:1080)`. Với SOCKS5, tên miền được phân giải ở VPS nên tránh được cả chặn bằng DNS.
+
+## Sàn giả lập (để test, không dùng tiền thật)
+
+```bash
+npm run fake:exchange   # http://localhost:4100 — demo / demo123, phiên 30 giây
+```
+
+Tạo tài khoản sàn với: URL đăng nhập `http://localhost:4100/login`, URL đặt lệnh `http://localhost:4100/trade`,
+selector `#username`, `#password`, `button[type=submit]`, dấu hiệu đăng nhập `.user-avatar`, số dư `#balance`.
+
+## AI dự đoán hướng (tuỳ chọn)
+
+Đặt `ANTHROPIC_API_KEY` trong `.env` rồi khởi động lại worker. Model mặc định `claude-opus-5-5` (đổi được trong cài đặt bot). Thiếu khoá → bot AI dừng an toàn, không đặt lệnh.
+
+## Test
+
+```bash
+npm test   # unit test: số dư, token worker, flow, chiến lược, lịch, báo cáo
+```
+
+## Production (gợi ý Nginx cho WebSocket)
+
+```nginx
+location /live {
+    proxy_pass http://127.0.0.1:3001;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 3600s;
+}
+```
+
+Đặt `WORKER_PUBLIC_WS_URL=wss://your-domain/live` và `APP_ORIGIN=https://your-domain`. Worker chỉ listen `127.0.0.1`.
+
+## Lộ trình
+1. ✅ Nền tảng: auth, schema, quản lý tài khoản sàn (mã hoá AES-256-GCM)
+2. ✅ Worker Playwright + trình duyệt trực tiếp trên canvas (chọn phần tử, ghi thao tác, lưu phiên, kiểm tra đăng nhập)
+3. ✅ Flow builder (React Flow): 10 loại khối, biến `{{...}}`, điều kiện/vòng lặp, tạo từ bước đã ghi, chạy thử trên worker (khối “đặt lệnh” chỉ tô sáng), log + ảnh từng bước, nút dừng
+4. ✅ Bot engine: 5 cách tính tiền, 7 cách chọn hướng (gồm AI Claude), chốt lời/cắt lỗ ngày, thua liên tiếp, ngân sách, khung giờ, chạy thử giả lập, dừng / dừng khẩn cấp
+5. ✅ Lịch tự chạy (cron theo múi giờ, chạy bù 30 phút, chống chạy trùng), Telegram, trang Tổng quan, báo cáo + CSV, tự dọn ảnh cũ, deploy PM2 + Nginx + backup — xem [deploy/DEPLOY.md](deploy/DEPLOY.md)

@@ -39,3 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+!.env.example
+
+# worker output (ảnh chụp lỗi...)
+/storage
+
+# Tài liệu trợ lý AI do `prisma init` tự sinh (không phải code dự án)
+/.agents/
+/.claude/
+/.windsurf/
+/skills-lock.json
