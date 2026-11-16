@@ -17,7 +17,7 @@ export async function getBrowser(): Promise<Browser> {
   launching ??= chromium
     .launch({
       headless: process.env.WORKER_HEADLESS !== "false",
-      args: ["--disable-dev-shm-usage"],
+      args: ["--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
       ...(proxy && { proxy }),
     })
     .then((b) => {
@@ -51,6 +51,29 @@ export function proxyConfig(): { server: string; bypass: string } | null {
   return { server, bypass: "localhost,127.0.0.1,::1" };
 }
 
+/**
+ * User-agent giống Chrome thật. Headless mặc định gửi "HeadlessChrome/x.y" → nhiều WAF trả 403 ngay.
+ * Dùng đúng phiên bản Chromium đang chạy (khớp với Client Hints) và đúng hệ điều hành của máy.
+ * Ghi đè bằng WORKER_USER_AGENT nếu cần.
+ */
+function realUserAgent(b: Browser): string {
+  const custom = process.env.WORKER_USER_AGENT?.trim();
+  if (custom) return custom;
+  const major = b.version().split(".")[0];
+  const platform =
+    process.platform === "darwin"
+      ? "Macintosh; Intel Mac OS X 10_15_7"
+      : process.platform === "win32"
+        ? "Windows NT 10.0; Win64; x64"
+        : "X11; Linux x86_64";
+  return `Mozilla/5.0 (${platform}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major}.0.0.0 Safari/537.36`;
+}
+
+function acceptLanguage(locale: string): string {
+  const lang = locale.split("-")[0];
+  return lang === "en" ? `${locale},en;q=0.9` : `${locale},${lang};q=0.9,en-US;q=0.8,en;q=0.7`;
+}
+
 export async function closeBrowser() {
   await browser?.close().catch(() => {});
   browser = null;
@@ -71,6 +94,8 @@ export async function newAccountContext(account: TradingAccount): Promise<Browse
       viewport: { width: account.viewportWidth, height: account.viewportHeight },
       locale: account.locale,
       timezoneId: account.timezone,
+      userAgent: realUserAgent(b),
+      extraHTTPHeaders: { "Accept-Language": acceptLanguage(account.locale) },
       storageState,
     });
     ctx.on("close", () => activeContexts--);

@@ -6,12 +6,26 @@
 //   WEB_HOST=127.0.0.1     chỉ nhận kết nối nội bộ — dùng khi có Nginx phía trước (mặc định)
 //   WEB_HOST=0.0.0.0       truy cập thẳng http://<IP>:<WEB_PORT> (không Nginx)
 // Worker: WORKER_HOST / WORKER_PORT trong .env (worker tự đọc).
-// Sau khi đổi các biến này: pm2 delete bot-web bot-worker; pm2 start ecosystem.config.cjs && pm2 save
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- file CommonJS bắt buộc cho PM2
-require("dotenv").config({ path: `${__dirname}/.env`, quiet: true });
+// Đổi WEB_PORT/WEB_HOST: pm2 delete bot-web bot-worker; pm2 start ecosystem.config.cjs && pm2 save
+// Đổi các biến khác trong .env: chỉ cần pm2 restart bot-web bot-worker
+//
+// QUAN TRỌNG: chỉ ĐỌC .env để lấy 2 giá trị trên, KHÔNG nạp vào process.env.
+// Nếu nạp (dotenv.config), PM2 sẽ lưu cứng toàn bộ .env vào môi trường tiến trình và
+// các lần sửa .env sau đó (VD xoá WORKER_PROXY_SERVER) sẽ không có tác dụng khi pm2 restart.
+/* eslint-disable @typescript-eslint/no-require-imports -- file CommonJS bắt buộc cho PM2 */
+const fs = require("node:fs");
+const dotenv = require("dotenv");
+/* eslint-enable @typescript-eslint/no-require-imports */
 
-const WEB_PORT = process.env.WEB_PORT || 3000;
-const WEB_HOST = process.env.WEB_HOST || "127.0.0.1";
+let fileEnv = {};
+try {
+  fileEnv = dotenv.parse(fs.readFileSync(`${__dirname}/.env`));
+} catch {
+  // chưa có .env → dùng mặc định
+}
+
+const WEB_PORT = process.env.WEB_PORT || fileEnv.WEB_PORT || 3000;
+const WEB_HOST = process.env.WEB_HOST || fileEnv.WEB_HOST || "127.0.0.1";
 
 module.exports = {
   apps: [
