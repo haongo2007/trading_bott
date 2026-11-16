@@ -7,10 +7,10 @@ import {
   type Connection, type Edge,
 } from "@xyflow/react";
 import {
-  CircleAlert, CircleCheck, CircleX, FileJson, Info, LoaderCircle, Play, Save, ShieldAlert, Square, Trash2, TriangleAlert,
+  CircleAlert, CircleCheck, CircleX, Copy, FileJson, Info, LoaderCircle, Play, Save, ShieldAlert, Square, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
-  NODE_META, NODE_TYPES, newNodeId, stepsToGraph, validateFlow,
+  cloneSubgraph, NODE_META, NODE_TYPES, newNodeId, stepsToGraph, validateFlow,
   type FlowGraph, type FlowNodeData, type FlowNodeType, type RunLogEntry, type RunLogStatus,
 } from "@/lib/flow";
 import { cancelFlowRun, deleteFlow, getFlowRun, saveFlow, startFlowRun, type FlowRunView } from "../actions";
@@ -92,7 +92,8 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
   const dirty = JSON.stringify(current) !== saved;
   const problems = useMemo(() => validateFlow(current.graph), [current]);
   const invalidIds = useMemo(() => new Set(problems.map((p) => p.nodeId).filter(Boolean) as string[]), [problems]);
-  const selected = nodes.find((n) => n.selected);
+  const selectedNodes = nodes.filter((n) => n.selected);
+  const selected = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
   const hasCritical = nodes.some((n) => n.data.critical);
   const varNames = useMemo(
     () => [...BUILTIN_VARS.filter((v) => v !== "password"), ...nodes.map((n) => n.data.saveAs).filter(Boolean)] as string[],
@@ -211,10 +212,69 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
   };
 
   const deleteSelected = () => {
-    if (!selected || selected.type === "start") return;
-    setNodes((ns) => ns.filter((n) => n.id !== selected.id));
-    setEdges((es) => es.filter((e) => e.source !== selected.id && e.target !== selected.id));
+    const ids = new Set(selectedNodes.filter((n) => n.type !== "start").map((n) => n.id));
+    if (!ids.size) return;
+    setNodes((ns) => ns.filter((n) => !ids.has(n.id)));
+    setEdges((es) => es.filter((e) => !ids.has(e.source) && !ids.has(e.target)));
   };
+
+  // ───── Nhân bản / sao chép – dán khối ─────
+  const clipboardRef = useRef<{ graph: FlowGraph; pastes: number } | null>(null);
+
+  const insertClone = useCallback(
+    (graph: FlowGraph, times: number) => {
+      const out = cloneSubgraph(graph.nodes, graph.edges, { times });
+      if (!out.nodes.length) return 0;
+      setNodes((ns) => [
+        ...ns.map((n) => (n.selected ? { ...n, selected: false } : n)),
+        ...out.nodes.map((n) => ({ ...n, selected: true, deletable: true })),
+      ]);
+      setEdges((es) => [
+        ...es.map((e) => (e.selected ? { ...e, selected: false } : e)),
+        ...out.edges.map((e) => ({ ...e, label: edgeLabel(e.sourceHandle) })),
+      ]);
+      return out.nodes.length;
+    },
+    [setEdges, setNodes],
+  );
+
+  const currentSelection = useCallback((): FlowGraph | null => {
+    const picked = rf.getNodes().filter((n) => n.selected && n.type !== "start") as EditorNode[];
+    if (!picked.length) return null;
+    return serialize("", picked, rf.getEdges()).graph;
+  }, [rf]);
+
+  const duplicateSelection = useCallback(() => {
+    if (!canWrite) return;
+    const g = currentSelection();
+    if (!g) return flash("info", "Chọn khối cần nhân bản (giữ Shift và kéo để chọn nhiều khối)");
+    const n = insertClone(g, 1);
+    flash("success", `Đã nhân bản ${n} khối — kéo bản sao tới vị trí mới rồi nối dây`);
+  }, [canWrite, currentSelection, flash, insertClone]);
+
+  // Ctrl/Cmd + D: nhân bản · Ctrl/Cmd + C / V: sao chép – dán
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || !canWrite) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+      const k = e.key.toLowerCase();
+      if (k === "d") {
+        e.preventDefault();
+        duplicateSelection();
+      } else if (k === "c") {
+        const g = currentSelection();
+        if (g) clipboardRef.current = { graph: g, pastes: 0 };
+      } else if (k === "v" && clipboardRef.current) {
+        e.preventDefault();
+        const clip = clipboardRef.current;
+        clip.pastes++;
+        insertClone(clip.graph, clip.pastes);
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [canWrite, currentSelection, duplicateSelection, insertClone]);
 
   const poll = async (commandId: string) => {
     for (;;) {
@@ -463,7 +523,35 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
         <aside className="card h-fit bg-base-100 shadow-sm">
           <div className="card-body p-4">
             {selected ? (
-              <NodeInspector node={selected} varNames={varNames} readOnly={!canWrite} onChange={updateSelected} onDelete={deleteSelected} />
+              <NodeInspector
+                node={selected}
+                varNames={varNames}
+                readOnly={!canWrite}
+                onChange={updateSelected}
+                onDelete={deleteSelected}
+                onDuplicate={duplicateSelection}
+              />
+            ) : selectedNodes.length > 1 ? (
+              <div className="space-y-3 text-sm">
+                <div className="font-semibold">Đã chọn {selectedNodes.length} khối</div>
+                <p className="text-base-content/70">
+                  Nhân bản sẽ sao chép các khối này cùng các đường nối giữa chúng. Bản sao được đặt bên phải, bạn chỉ cần nối dây vào nhánh mới.
+                </p>
+                {canWrite && (
+                  <div className="flex gap-2">
+                    <button className="btn btn-sm btn-primary flex-1" onClick={duplicateSelection}>
+                      <Copy className="size-4" /> Nhân bản
+                    </button>
+                    <button className="btn btn-sm btn-ghost text-error" onClick={deleteSelected}>
+                      <Trash2 className="size-4" /> Xoá
+                    </button>
+                  </div>
+                )}
+                <p className="text-[11px] text-base-content/50">
+                  <kbd className="kbd kbd-xs">Ctrl/⌘</kbd> + <kbd className="kbd kbd-xs">D</kbd> nhân bản ·{" "}
+                  <kbd className="kbd kbd-xs">Ctrl/⌘</kbd> + <kbd className="kbd kbd-xs">C</kbd> / <kbd className="kbd kbd-xs">V</kbd> sao chép – dán
+                </p>
+              </div>
             ) : (
               <div className="space-y-3 text-sm">
                 <div className="font-semibold">Hướng dẫn</div>
@@ -473,6 +561,10 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
                   <li>Khối <b>Điều kiện</b> có 2 nhánh: <span className="text-success">Đúng</span> / <span className="text-error">Sai</span>. Nối ngược lên trên để tạo vòng lặp.</li>
                   <li>Đánh dấu <b>Thao tác đặt lệnh</b> cho nút TĂNG/GIẢM để chạy thử an toàn.</li>
                   <li>Chọn khối rồi nhấn <kbd className="kbd kbd-xs">Delete</kbd> để xoá.</li>
+                  <li>
+                    Giữ <kbd className="kbd kbd-xs">Shift</kbd> và kéo để chọn nhiều khối, rồi <kbd className="kbd kbd-xs">Ctrl/⌘</kbd> +{" "}
+                    <kbd className="kbd kbd-xs">D</kbd> để nhân bản cả tổ hợp (giữ nguyên dây nối bên trong).
+                  </li>
                 </ul>
                 <div className="font-semibold">Biến có sẵn</div>
                 <div className="flex flex-wrap gap-1">

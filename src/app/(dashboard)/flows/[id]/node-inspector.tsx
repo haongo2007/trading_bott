@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Copy, Trash2 } from "lucide-react";
 import { COND_OPS, NODE_META, PRESS_KEYS, type FlowNodeData } from "@/lib/flow";
 import { COLOR_CLASSES, NODE_ICONS, type EditorNode } from "./flow-node";
 
@@ -15,9 +15,10 @@ type Props = {
   readOnly?: boolean;
   onChange: (patch: Partial<FlowNodeData>) => void;
   onDelete: () => void;
+  onDuplicate?: () => void;
 };
 
-export function NodeInspector({ node, varNames, readOnly, onChange, onDelete }: Props) {
+export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, onDuplicate }: Props) {
   const { type, data: d } = node;
   const meta = NODE_META[type];
   const Icon = NODE_ICONS[type];
@@ -43,6 +44,11 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete }: 
           <div className="font-semibold">{meta.label}</div>
           <div className="text-xs text-base-content/60">{meta.desc}</div>
         </div>
+        {type !== "start" && !readOnly && onDuplicate && (
+          <button className="btn btn-ghost btn-sm btn-square" onClick={onDuplicate} aria-label="Nhân bản khối" title="Nhân bản (Ctrl/⌘ + D)">
+            <Copy className="size-4" />
+          </button>
+        )}
         {type !== "start" && !readOnly && (
           <button className="btn btn-ghost btn-sm btn-square text-error" onClick={onDelete} aria-label="Xoá khối">
             <Trash2 className="size-4" />

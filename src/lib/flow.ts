@@ -257,6 +257,38 @@ export function defaultGraph(): FlowGraph {
   };
 }
 
+/**
+ * Nhân bản các khối đã chọn cùng các đường nối NỘI BỘ giữa chúng (không lấy đường nối ra ngoài).
+ * Khối Bắt đầu không được nhân bản. Bản sao đặt bên phải nhóm gốc, cách `gapX`.
+ */
+export function cloneSubgraph(
+  nodes: FlowNode[],
+  edges: FlowEdge[],
+  opts: { times?: number; gapX?: number } = {},
+): { nodes: FlowNode[]; edges: FlowEdge[] } {
+  const src = nodes.filter((n) => n.type !== "start");
+  if (!src.length) return { nodes: [], edges: [] };
+  const minX = Math.min(...src.map((n) => n.position.x));
+  const maxX = Math.max(...src.map((n) => n.position.x));
+  const dx = (maxX - minX + 256 + (opts.gapX ?? 64)) * (opts.times ?? 1);
+
+  const idMap = new Map<string, string>();
+  const outNodes = src.map((n) => {
+    const id = newNodeId(n.type);
+    idMap.set(n.id, id);
+    return { id, type: n.type, position: { x: n.position.x + dx, y: n.position.y }, data: structuredClone(n.data) };
+  });
+  const outEdges = edges
+    .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+    .map((e) => {
+      const source = idMap.get(e.source)!;
+      const target = idMap.get(e.target)!;
+      const handle = e.sourceHandle ?? "next";
+      return { id: `e_${source}_${handle}_${target}`, source, target, sourceHandle: handle };
+    });
+  return { nodes: outNodes, edges: outEdges };
+}
+
 const STEP_GAP = 130;
 
 /** Chuyển các bước ghi từ "Trình duyệt trực tiếp" thành một chuỗi khối thẳng hàng. */
