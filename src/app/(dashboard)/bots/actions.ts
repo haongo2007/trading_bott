@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireUser } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { flowCanPlaceOrder } from "@/lib/flow";
 import { tradingDate } from "@/lib/strategy";
 import { botFormSchema, toBotData, type BotFormState } from "@/lib/validation/bot";
 
@@ -24,7 +25,9 @@ async function ensureRefs(accountId: string, flowId: string): Promise<string | n
   if (!acc.balanceSelector) return "Tài khoản sàn chưa có selector số dư — bot cần đọc số dư để quản lý rủi ro";
   if (!flow) return "Flow không tồn tại";
   const nodes = (flow.graph as { nodes?: { type: string }[] }).nodes ?? [];
-  if (!nodes.some((n) => n.type === "order")) return "Flow chưa có khối “Đặt lệnh” — mở flow và thêm khối này";
+  if (!flowCanPlaceOrder(nodes as { type: string; data?: { critical?: boolean } }[])) {
+    return "Flow chưa có thao tác đặt lệnh — thêm khối “Đặt lệnh” hoặc đánh dấu nút TĂNG/GIẢM là “Thao tác đặt lệnh”";
+  }
   return null;
 }
 

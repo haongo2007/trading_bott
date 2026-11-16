@@ -4,7 +4,7 @@ import type { RecordedStep } from "@/lib/live-protocol";
 // ───────────── Kiểu khối (node) của Flow ─────────────
 
 export const NODE_TYPES = [
-  "start", "goto", "click", "fill", "press", "waitFor", "wait", "readText", "order", "direction", "condition", "screenshot", "end",
+  "start", "goto", "click", "fill", "press", "waitFor", "wait", "readText", "order", "direction", "condition", "loopStart", "screenshot", "end",
 ] as const;
 export type FlowNodeType = (typeof NODE_TYPES)[number];
 
@@ -49,6 +49,7 @@ export const NODE_META: Record<FlowNodeType, { label: string; desc: string; colo
   order: { label: "Đặt lệnh", desc: "Nhập {{amount}}, bấm TĂNG/GIẢM theo bot", color: "error" },
   direction: { label: "Rẽ theo hướng", desc: "Nhánh TĂNG / GIẢM theo {{direction}} của bot", color: "accent" },
   condition: { label: "Điều kiện", desc: "Rẽ nhánh Đúng / Sai", color: "accent" },
+  loopStart: { label: "Mỗi lệnh bắt đầu từ đây", desc: "Phía trên: chạy 1 lần đầu phiên · phía dưới: lặp mỗi lệnh", color: "success" },
   screenshot: { label: "Chụp màn hình", desc: "Lưu ảnh trang hiện tại", color: "neutral" },
   end: { label: "Kết thúc", desc: "Dừng flow", color: "error" },
 };
@@ -112,6 +113,8 @@ export function validateFlow(graph: FlowGraph): { nodeId?: string; message: stri
   const ids = new Set(graph.nodes.map((n) => n.id));
   const starts = graph.nodes.filter((n) => n.type === "start");
   if (starts.length !== 1) errors.push({ message: "Flow phải có đúng 1 khối Bắt đầu" });
+  const loops = graph.nodes.filter((n) => n.type === "loopStart");
+  if (loops.length > 1) errors.push({ nodeId: loops[1].id, message: "Chỉ được có 1 khối “Mỗi lệnh bắt đầu từ đây”" });
 
   for (const e of graph.edges) {
     if (!ids.has(e.source) || !ids.has(e.target)) errors.push({ message: `Đường nối ${e.id} trỏ tới khối không tồn tại` });
@@ -154,11 +157,17 @@ export function validateFlow(graph: FlowGraph): { nodeId?: string; message: stri
           if (n.type === "direction") errors.push({ nodeId: n.id, message: `${nodeTitle(n)}: chưa nối nhánh “${h === "up" ? "TĂNG" : "GIẢM"}”` });
           else if (n.type === "condition") errors.push({ nodeId: n.id, message: `${nodeTitle(n)}: chưa nối nhánh “${h === "true" ? "Đúng" : "Sai"}”` });
           else if (n.type === "start") errors.push({ nodeId: n.id, message: "Khối Bắt đầu chưa nối tới khối nào" });
+          else if (n.type === "loopStart") errors.push({ nodeId: n.id, message: `${nodeTitle(n)}: chưa nối tới khối đặt lệnh phía dưới` });
         }
       }
     }
   }
   return errors;
+}
+
+/** Flow có thao tác đặt lệnh: khối Đặt lệnh, hoặc Click/Nhấn phím đánh dấu “Thao tác đặt lệnh”. */
+export function flowCanPlaceOrder(nodes: { type: string; data?: { critical?: boolean } }[]): boolean {
+  return nodes.some((n) => n.type === "order" || ((n.type === "click" || n.type === "press") && !!n.data?.critical));
 }
 
 /** Các cổng ra của một khối. */

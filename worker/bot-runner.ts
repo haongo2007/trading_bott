@@ -1,6 +1,7 @@
 import type { Page } from "playwright";
 import type { Bot, BotRun, Command, Flow, TradingAccount } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
+import { flowCanPlaceOrder } from "@/lib/flow";
 import {
   checkStop, clampStake, computeLimits, inWindow, lossStreak, nextDirection, nextStake, resultFromPnl, settlePnl,
   STOP_REASON_LABELS, tradingDate,
@@ -27,7 +28,9 @@ export async function runBot(cmd: Command): Promise<{ ok: boolean; message: stri
   if (bot.account.status === "DISABLED") return { ok: false, message: "Tài khoản sàn đang tạm khoá" };
   if (!bot.account.balanceSelector) return { ok: false, message: "Tài khoản sàn chưa cấu hình selector số dư — bot cần đọc số dư để quản lý rủi ro" };
   const graph = loadGraph(bot.flow.graph);
-  if (!graph.nodes.some((n) => n.type === "order")) return { ok: false, message: "Flow chưa có khối “Đặt lệnh”" };
+  if (!flowCanPlaceOrder(graph.nodes)) {
+    return { ok: false, message: "Flow chưa có thao tác đặt lệnh (khối “Đặt lệnh” hoặc nút đánh dấu “Thao tác đặt lệnh”)" };
+  }
 
   const now = new Date();
   if (!inWindow(now, bot.timezone, bot.windowStart, bot.windowEnd)) {
@@ -91,7 +94,25 @@ export async function runBot(cmd: Command): Promise<{ ok: boolean; message: stri
       `▶️ <b>${esc(bot.name)}</b> bắt đầu ${bot.dryRun ? "chạy thử 🧪" : "chạy THẬT 💰"}\nSố dư: ${fmt(startReal)} · Lãi/lỗ ngày hiện tại: ${money(num(run.pnl))}`,
     );
 
-    stopReason = await tradingLoop(bot, run, page, graph, logRun);
+    // Phần chuẩn bị (trên khối “Mỗi lệnh bắt đầu từ đây”): chạy 1 lần, trình duyệt giữ nguyên cho các lệnh sau
+    let setupVars: FlowVars = {};
+    if (graph.nodes.some((n) => n.type === "loopStart")) {
+      const vars: FlowVars = { ...accountVars(bot.account) };
+      const r = await runGraph(page, graph, vars, {
+        dryRun: bot.dryRun,
+        isCancelled: async () => false,
+        shoot: await makeShooter(page, ["bots", run.id]),
+        segment: "setup",
+      });
+      if (r.orderPlaced || r.orderSkipped) {
+        throw new Error("Phần chuẩn bị (trước khối “Mỗi lệnh bắt đầu từ đây”) có thao tác đặt lệnh — hãy chuyển nó xuống dưới khối mốc");
+      }
+      if (!r.ok) throw new Error(`Phần chuẩn bị lỗi: ${r.error}`);
+      setupVars = publicVars(vars);
+      await logRun(`Đã chạy phần chuẩn bị (${r.logs.length} bước) — từ giờ mỗi lệnh chỉ chạy phần dưới khối mốc`);
+    }
+
+    stopReason = await tradingLoop(bot, run, page, graph, logRun, setupVars);
   } catch (e) {
     stopReason = "ERROR";
     errorMsg = (e as Error).message.split("\n")[0];
@@ -128,6 +149,7 @@ async function tradingLoop(
   page: Page,
   graph: ReturnType<typeof loadGraph>,
   logRun: (m: string, level?: "INFO" | "WARN" | "ERROR", shot?: string) => Promise<void>,
+  setupVars: FlowVars = {},
 ): Promise<StopReasonKind> {
   const stakeCfg = (bot.stakeConfig ?? {}) as StakeConfig;
   const dirCfg = (bot.directionConfig ?? {}) as DirectionConfig;
@@ -146,7 +168,7 @@ async function tradingLoop(
   let seq = prev.at(-1)?.seq ?? 0;
   let staked = prev.reduce((s, o) => s + num(o.amount), 0);
   let pnl = num(run.pnl);
-  let lastVars: FlowVars = {};
+  let lastVars: FlowVars = { ...setupVars };
   let aiSkips = 0;
 
   const signal = async (): Promise<"STOP" | "KILL" | null> => {
@@ -234,7 +256,7 @@ async function tradingLoop(
     }
 
     const vars: FlowVars = { ...accountVars(bot.account), ...lastVars, amount, direction };
-    const r = await runGraph(page, graph, vars, { dryRun: bot.dryRun, isCancelled: killRequested, shoot, seqOffset: seq * 100 });
+    const r = await runGraph(page, graph, vars, { dryRun: bot.dryRun, isCancelled: killRequested, shoot, seqOffset: seq * 100, segment: "order" });
     lastVars = publicVars(vars);
     const shot = r.logs.findLast((l) => l.screenshot)?.screenshot;
 

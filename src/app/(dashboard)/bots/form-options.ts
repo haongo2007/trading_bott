@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { flowCanPlaceOrder } from "@/lib/flow";
 
 /** Danh sách tài khoản & flow cho form bot, kèm cảnh báo cấu hình còn thiếu. */
 export async function loadBotFormOptions() {
@@ -17,12 +18,12 @@ export async function loadBotFormOptions() {
       warn: !a.balanceSelector ? "Tài khoản chưa có selector số dư — bot không thể quản lý rủi ro." : undefined,
     })),
     flows: flows.map((f) => {
-      const hasOrder = ((f.graph as { nodes?: { type: string }[] }).nodes ?? []).some((n) => n.type === "order");
+      const hasOrder = flowCanPlaceOrder((f.graph as { nodes?: { type: string; data?: { critical?: boolean } }[] }).nodes ?? []);
       return {
         id: f.id,
         name: f.name,
-        note: hasOrder ? undefined : "chưa có khối Đặt lệnh",
-        warn: hasOrder ? undefined : "Flow này chưa có khối “Đặt lệnh” — mở flow và thêm khối trước khi dùng cho bot.",
+        note: hasOrder ? undefined : "chưa có thao tác đặt lệnh",
+        warn: hasOrder ? undefined : "Flow này chưa có khối “Đặt lệnh” hoặc nút “Thao tác đặt lệnh” — mở flow và thêm trước khi dùng cho bot.",
       };
     }),
   };

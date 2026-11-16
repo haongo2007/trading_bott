@@ -3,7 +3,7 @@
 import { createContext, memo, useContext } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
-  ArrowUpDown, Camera, CircleDollarSign, CircleStop, Clock, Eye, GitBranch, Globe, Keyboard, MousePointerClick, Play, ScanText, ShieldAlert, TextCursorInput,
+  ArrowUpDown, Camera, Repeat, CircleDollarSign, CircleStop, Clock, Eye, GitBranch, Globe, Keyboard, MousePointerClick, Play, ScanText, ShieldAlert, TextCursorInput,
   type LucideIcon,
 } from "lucide-react";
 import { NODE_META, nodeTitle, summarizeNode, type FlowNodeData, type FlowNodeType, type RunLogStatus } from "@/lib/flow";
@@ -22,6 +22,7 @@ export const NODE_ICONS: Record<FlowNodeType, LucideIcon> = {
   order: CircleDollarSign,
   direction: ArrowUpDown,
   condition: GitBranch,
+  loopStart: Repeat,
   screenshot: Camera,
   end: CircleStop,
 };

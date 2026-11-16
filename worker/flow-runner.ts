@@ -50,6 +50,13 @@ export type RunGraphOptions = {
   shoot?: (seq: number) => Promise<string | undefined>;
   onStep?: (entry: RunLogEntry | null, currentNodeId: string | null) => Promise<void>;
   seqOffset?: number;
+  /**
+   * Đoạn flow cần chạy (khi có khối “Mỗi lệnh bắt đầu từ đây”):
+   *  - "all"   (mặc định): từ Bắt đầu đến Kết thúc, khối mốc chỉ là điểm đi qua — dùng khi chạy thử flow
+   *  - "setup": từ Bắt đầu đến khối mốc rồi dừng — bot chạy 1 lần đầu phiên
+   *  - "order": từ sau khối mốc đến Kết thúc — bot chạy mỗi lệnh
+   */
+  segment?: "all" | "setup" | "order";
 };
 
 export type RunGraphResult = { ok: boolean; error?: string; cancelled?: boolean; logs: RunLogEntry[]; orderPlaced: boolean; orderSkipped: boolean };
@@ -65,7 +72,10 @@ export async function runGraph(page: Page, graph: FlowGraph, vars: FlowVars, opt
   const logs: RunLogEntry[] = [];
   const state: OrderState = { orderPlaced: false, orderSkipped: false, orderNodeRan: false };
   const startedAt = Date.now();
-  let nodeId: string | null = graph.nodes.find((n) => n.type === "start")!.id;
+  const segment = opts.segment ?? "all";
+  const loopNode = graph.nodes.find((n) => n.type === "loopStart");
+  let nodeId: string | null =
+    segment === "order" && loopNode ? nextNodeId(graph, loopNode.id) : graph.nodes.find((n) => n.type === "start")!.id;
   let seq = opts.seqOffset ?? 0;
   let steps = 0;
 
@@ -77,6 +87,7 @@ export async function runGraph(page: Page, graph: FlowGraph, vars: FlowVars, opt
 
       const node: FlowNode | undefined = graph.nodes.find((n) => n.id === nodeId);
       if (!node) throw new Error(`Không tìm thấy khối ${nodeId}`);
+      if (node.type === "loopStart" && segment === "setup") break; // xong phần chuẩn bị
       seq++;
       await opts.onStep?.(null, node.id);
 
@@ -364,6 +375,9 @@ async function executeNode(
       const ok = evalCondition(d.left!, d.op!, d.right, vars);
       return { message: `${d.left} ${d.op} ${d.op === "exists" ? "" : renderTemplate(d.right ?? "", vars)} → ${ok ? "Đúng" : "Sai"}`, handle: ok ? "true" : "false" };
     }
+
+    case "loopStart":
+      return { message: "Từ đây: lặp lại mỗi lệnh (khi bot chạy)" };
 
     case "screenshot":
       return { message: "Đã chụp màn hình" };

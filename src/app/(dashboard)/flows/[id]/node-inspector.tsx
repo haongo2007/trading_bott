@@ -172,6 +172,17 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, on
         </>
       )}
 
+      {type === "loopStart" && (
+        <div className="alert alert-success alert-soft py-2 text-xs">
+          <span>
+            Khi bot chạy: các khối <b>phía trên</b> (đóng popup, chọn sản phẩm…) chạy <b>1 lần</b> đầu phiên; các khối <b>phía dưới</b>{" "}
+            (rẽ hướng, nhập <code>{"{{amount}}"}</code>, bấm TĂNG/GIẢM) <b>lặp lại mỗi lệnh</b> trên cùng trình duyệt cho tới khi bot dừng
+            (hết ngân sách, chạm chốt lời/cắt lỗ, hết khung giờ…). Không cần đưa bước đăng nhập vào flow — bot tự đăng nhập 1 lần bằng cấu
+            hình tài khoản. Khi chạy thử flow, cả hai phần chạy một lượt.
+          </span>
+        </div>
+      )}
+
       {type === "direction" && (
         <div className="alert alert-info alert-soft py-2 text-xs">
           <span>
@@ -225,7 +236,7 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, on
           cls="toggle-warning"
         />
       )}
-      {!["start", "end", "condition", "direction"].includes(type) && (
+      {!["start", "end", "condition", "direction", "loopStart"].includes(type) && (
         <Toggle
           checked={!!d.optional}
           onChange={(v) => onChange({ optional: v || undefined })}

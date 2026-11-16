@@ -614,6 +614,9 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
                   <li>Kéo từ chấm dưới khối sang khối khác để nối.</li>
                   <li>Khối <b>Điều kiện</b> có 2 nhánh: <span className="text-success">Đúng</span> / <span className="text-error">Sai</span>. Nối ngược lên trên để tạo vòng lặp.</li>
                   <li>Đánh dấu <b>Thao tác đặt lệnh</b> cho nút TĂNG/GIẢM để chạy thử an toàn.</li>
+                  <li>
+                    Đặt khối <b>Mỗi lệnh bắt đầu từ đây</b> ngay trước phần đặt lệnh: phía trên chạy 1 lần đầu phiên, phía dưới lặp mỗi lệnh.
+                  </li>
                   <li>Chọn khối rồi nhấn <kbd className="kbd kbd-xs">Delete</kbd> để xoá.</li>
                   <li>
                     Giữ <kbd className="kbd kbd-xs">Shift</kbd> và kéo để chọn nhiều khối, rồi <kbd className="kbd kbd-xs">Ctrl/⌘</kbd> +{" "}
