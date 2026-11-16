@@ -4,7 +4,7 @@ import type { RecordedStep } from "@/lib/live-protocol";
 // ───────────── Kiểu khối (node) của Flow ─────────────
 
 export const NODE_TYPES = [
-  "start", "goto", "click", "fill", "press", "waitFor", "wait", "readText", "order", "condition", "screenshot", "end",
+  "start", "goto", "click", "fill", "press", "waitFor", "wait", "readText", "order", "direction", "condition", "screenshot", "end",
 ] as const;
 export type FlowNodeType = (typeof NODE_TYPES)[number];
 
@@ -47,6 +47,7 @@ export const NODE_META: Record<FlowNodeType, { label: string; desc: string; colo
   wait: { label: "Chờ", desc: "Dừng một khoảng thời gian", color: "warning" },
   readText: { label: "Đọc giá trị", desc: "Đọc chữ/số vào biến", color: "secondary" },
   order: { label: "Đặt lệnh", desc: "Nhập {{amount}}, bấm TĂNG/GIẢM theo bot", color: "error" },
+  direction: { label: "Rẽ theo hướng", desc: "Nhánh TĂNG / GIẢM theo {{direction}} của bot", color: "accent" },
   condition: { label: "Điều kiện", desc: "Rẽ nhánh Đúng / Sai", color: "accent" },
   screenshot: { label: "Chụp màn hình", desc: "Lưu ảnh trang hiện tại", color: "neutral" },
   end: { label: "Kết thúc", desc: "Dừng flow", color: "error" },
@@ -148,16 +149,24 @@ export function validateFlow(graph: FlowGraph): { nodeId?: string; message: stri
         break;
     }
     if (n.type !== "end") {
-      const handles = n.type === "condition" ? ["true", "false"] : ["next"];
-      for (const h of handles) {
+      for (const h of nodeHandles(n.type)) {
         if (!graph.edges.some((e) => e.source === n.id && (e.sourceHandle ?? "next") === h)) {
-          if (n.type === "condition") errors.push({ nodeId: n.id, message: `${nodeTitle(n)}: chưa nối nhánh “${h === "true" ? "Đúng" : "Sai"}”` });
+          if (n.type === "direction") errors.push({ nodeId: n.id, message: `${nodeTitle(n)}: chưa nối nhánh “${h === "up" ? "TĂNG" : "GIẢM"}”` });
+          else if (n.type === "condition") errors.push({ nodeId: n.id, message: `${nodeTitle(n)}: chưa nối nhánh “${h === "true" ? "Đúng" : "Sai"}”` });
           else if (n.type === "start") errors.push({ nodeId: n.id, message: "Khối Bắt đầu chưa nối tới khối nào" });
         }
       }
     }
   }
   return errors;
+}
+
+/** Các cổng ra của một khối. */
+export function nodeHandles(type: FlowNodeType): string[] {
+  if (type === "end") return [];
+  if (type === "condition") return ["true", "false"];
+  if (type === "direction") return ["up", "down"];
+  return ["next"];
 }
 
 export function nodeTitle(n: Pick<FlowNode, "type" | "data">) {
@@ -182,6 +191,8 @@ export function summarizeNode(n: Pick<FlowNode, "type" | "data">): string {
       return `${d.selector ?? "?"} → {{${d.saveAs ?? "?"}}}`;
     case "order":
       return `{{amount}} → ▲ ${d.upSelector ?? "?"} / ▼ ${d.downSelector ?? "?"}`;
+    case "direction":
+      return "{{direction}} → ▲ UP / ▼ DOWN";
     case "condition":
       return `${d.left ?? "?"} ${d.op ?? "?"} ${d.op === "exists" ? "" : (d.right ?? "")}`;
     default:

@@ -35,7 +35,7 @@ function toEditorNodes(g: FlowGraph): EditorNode[] {
 }
 
 function edgeLabel(h?: string | null) {
-  return h === "true" ? "Đúng" : h === "false" ? "Sai" : undefined;
+  return h === "true" ? "Đúng" : h === "false" ? "Sai" : h === "up" ? "▲ TĂNG" : h === "down" ? "▼ GIẢM" : undefined;
 }
 
 function toEditorEdges(g: FlowGraph): Edge[] {
@@ -82,6 +82,7 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
   const [accountId, setAccountId] = useState(accounts.find((a) => a.status === "ACTIVE")?.id ?? accounts[0]?.id ?? "");
   const [dryRun, setDryRun] = useState(true);
   const [loginFirst, setLoginFirst] = useState(true);
+  const [testDirection, setTestDirection] = useState<"UP" | "DOWN">("UP");
   const [run, setRun] = useState<{ commandId: string; dryRun: boolean; view: FlowRunView | null } | null>(null);
   const [preview, setPreview] = useState<RunLogEntry | null>(null);
   const [importText, setImportText] = useState("");
@@ -178,7 +179,7 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
       const sel = nodes.find((n) => n.selected);
       let position = at;
       let linkFrom: EditorNode | undefined;
-      if (!position && sel && sel.type !== "end" && sel.type !== "condition") {
+      if (!position && sel && sel.type !== "end" && sel.type !== "condition" && sel.type !== "direction") {
         position = { x: sel.position.x, y: sel.position.y + 130 };
         if (!edges.some((e) => e.source === sel.id && (e.sourceHandle ?? "next") === "next")) linkFrom = sel;
       }
@@ -236,7 +237,7 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
     if (dirty && !(await save())) return;
     let res: Awaited<ReturnType<typeof startFlowRun>>;
     try {
-      res = await startFlowRun({ flowId: flow.id, accountId, dryRun, loginFirst });
+      res = await startFlowRun({ flowId: flow.id, accountId, dryRun, loginFirst, direction: testDirection });
     } catch {
       return flash("error", "Server lỗi khi tạo lệnh chạy. Xem log của Next.js để biết chi tiết.");
     }
@@ -347,6 +348,19 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input type="checkbox" className="checkbox checkbox-sm" checked={loginFirst} onChange={(e) => setLoginFirst(e.target.checked)} disabled={running} />
             Đăng nhập trước
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            Hướng thử
+            <select
+              className="select select-sm w-28"
+              value={testDirection}
+              onChange={(e) => setTestDirection(e.target.value as "UP" | "DOWN")}
+              disabled={running}
+              title="Giá trị {{direction}} khi chạy thử flow. Khi bot chạy, hướng do chiến lược/AI quyết định."
+            >
+              <option value="UP">▲ TĂNG</option>
+              <option value="DOWN">▼ GIẢM</option>
+            </select>
           </label>
           <div className="ml-auto">
             {running ? (

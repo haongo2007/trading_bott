@@ -15,7 +15,7 @@ const STORAGE_DIR = process.env.STORAGE_DIR ?? "storage";
 const DEFAULT_TIMEOUT = 10_000;
 const MAX_RUN_MS = 10 * 60_000;
 
-export type RunFlowPayload = { flowId: string; dryRun: boolean; loginFirst: boolean };
+export type RunFlowPayload = { flowId: string; dryRun: boolean; loginFirst: boolean; direction?: "UP" | "DOWN" };
 export type FlowVars = Record<string, string | number>;
 
 export class CancelledError extends Error {}
@@ -54,10 +54,16 @@ export type RunGraphOptions = {
 
 export type RunGraphResult = { ok: boolean; error?: string; cancelled?: boolean; logs: RunLogEntry[]; orderPlaced: boolean; orderSkipped: boolean };
 
+/**
+ * orderPlaced: đã bấm một thao tác đặt lệnh (khối Đặt lệnh, hoặc Click/Nhấn phím đánh dấu “Thao tác đặt lệnh”).
+ * orderNodeRan: khối Đặt lệnh đã chạy — chặn đặt 2 lệnh trong 1 lượt.
+ */
+type OrderState = { orderPlaced: boolean; orderSkipped: boolean; orderNodeRan: boolean };
+
 /** Chạy một flow trên page có sẵn. Dùng cho cả “Chạy thử flow” lẫn mỗi lệnh của bot. */
 export async function runGraph(page: Page, graph: FlowGraph, vars: FlowVars, opts: RunGraphOptions): Promise<RunGraphResult> {
   const logs: RunLogEntry[] = [];
-  const state = { orderPlaced: false, orderSkipped: false };
+  const state: OrderState = { orderPlaced: false, orderSkipped: false, orderNodeRan: false };
   const startedAt = Date.now();
   let nodeId: string | null = graph.nodes.find((n) => n.type === "start")!.id;
   let seq = opts.seqOffset ?? 0;
@@ -110,14 +116,14 @@ export async function runGraph(page: Page, graph: FlowGraph, vars: FlowVars, opt
       if (node.type === "end") break;
       nodeId = nextNodeId(graph, node.id, handle);
     }
-    return { ok: true, logs, ...state };
+    return { ok: true, logs, orderPlaced: state.orderPlaced, orderSkipped: state.orderSkipped };
   } catch (e) {
     return {
       ok: false,
       error: (e as Error).message.split("\n")[0],
       cancelled: e instanceof CancelledError,
       logs,
-      ...state,
+      orderSkipped: state.orderSkipped,
       // lỗi "không chắc chắn" sau khi bấm đặt lệnh → coi như có thể đã đặt
       orderPlaced: state.orderPlaced || e instanceof OrderUncertainError,
     };
@@ -160,7 +166,7 @@ export async function runFlowCommand(commandId: string, accountId: string, paylo
   if (account.status === "DISABLED") return { ...result, phase: "done", ok: false, error: "Tài khoản đang tạm khoá" };
 
   // Khi chạy thử flow riêng lẻ: giá trị mẫu cho khối Đặt lệnh
-  const vars: FlowVars = { ...accountVars(account), amount: 10_000, direction: "UP" };
+  const vars: FlowVars = { ...accountVars(account), amount: 10_000, direction: payload.direction === "DOWN" ? "DOWN" : "UP" };
   const context = await newAccountContext(account);
   const page = await context.newPage();
   const shoot = await makeShooter(page, ["runs", commandId]);
@@ -231,7 +237,7 @@ async function executeNode(
   vars: FlowVars,
   dryRun: boolean,
   isCancelled: () => Promise<boolean>,
-  state: { orderPlaced: boolean; orderSkipped: boolean },
+  state: OrderState,
 ): Promise<{ message: string; skipped?: boolean; handle?: string }> {
   const d = node.data;
   const timeout = d.timeoutMs ?? DEFAULT_TIMEOUT;
@@ -255,9 +261,11 @@ async function executeNode(
       await el.waitFor({ state: "visible", timeout });
       if (d.critical && dryRun) {
         await highlight(page, d.selector!);
+        state.orderSkipped = true;
         return { message: `Chạy thử: KHÔNG bấm (thao tác đặt lệnh) — đã tìm thấy ${d.selector}`, skipped: true };
       }
       await el.click({ timeout });
+      if (d.critical) state.orderPlaced = true;
       return { message: d.selector! };
     }
 
@@ -273,8 +281,12 @@ async function executeNode(
     }
 
     case "press":
-      if (d.critical && dryRun) return { message: `Chạy thử: KHÔNG nhấn ${d.key} (thao tác đặt lệnh)`, skipped: true };
+      if (d.critical && dryRun) {
+        state.orderSkipped = true;
+        return { message: `Chạy thử: KHÔNG nhấn ${d.key} (thao tác đặt lệnh)`, skipped: true };
+      }
       await page.keyboard.press(d.key!);
+      if (d.critical) state.orderPlaced = true;
       return { message: d.key! };
 
     case "waitFor":
@@ -311,7 +323,8 @@ async function executeNode(
       const direction = vars.direction;
       if (!Number.isFinite(amount) || amount <= 0) throw new Error("Thiếu số tiền {{amount}} hợp lệ");
       if (direction !== "UP" && direction !== "DOWN") throw new Error("Thiếu hướng {{direction}} (UP/DOWN)");
-      if (state.orderPlaced) throw new Error("Flow đặt lệnh 2 lần trong 1 phiên — mỗi lượt bot chỉ được đặt 1 lệnh");
+      if (state.orderNodeRan) throw new Error("Flow đặt lệnh 2 lần trong 1 phiên — mỗi lượt bot chỉ được đặt 1 lệnh");
+      state.orderNodeRan = true;
 
       if (d.amountSelector) {
         const input = page.locator(d.amountSelector).first();
@@ -339,6 +352,12 @@ async function executeNode(
         }
       }
       return { message: `Đã đặt ${label}` };
+    }
+
+    case "direction": {
+      const dir = vars.direction;
+      if (dir !== "UP" && dir !== "DOWN") throw new Error("Thiếu hướng {{direction}} (UP/DOWN)");
+      return { message: dir === "UP" ? "▲ Nhánh TĂNG" : "▼ Nhánh GIẢM", handle: dir === "UP" ? "up" : "down" };
     }
 
     case "condition": {

@@ -133,6 +133,16 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete }: 
         </>
       )}
 
+      {type === "direction" && (
+        <div className="alert alert-info alert-soft py-2 text-xs">
+          <span>
+            Rẽ nhánh theo hướng bot chọn (chiến lược hoặc AI): <b>▲ TĂNG</b> khi <code>{"{{direction}}"}</code> = UP, <b>▼ GIẢM</b> khi = DOWN.
+            Mỗi nhánh nối tới tổ hợp thao tác riêng (Click, Nhập <code>{"{{amount}}"}</code>…). Đánh dấu nút bấm cuối cùng của mỗi nhánh là
+            “Thao tác đặt lệnh” để bot biết lệnh đã được đặt.
+          </span>
+        </div>
+      )}
+
       {type === "condition" && (
         <>
           <Field label="Biến (vế trái)">
@@ -172,11 +182,11 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete }: 
           checked={!!d.critical}
           onChange={(v) => onChange({ critical: v || undefined })}
           title="Thao tác đặt lệnh"
-          desc="Khi chạy thử: chỉ tô sáng, KHÔNG bấm. VD: nút TĂNG/GIẢM, xác nhận lệnh."
+          desc="Khi chạy thử: chỉ tô sáng, KHÔNG bấm. Khi chạy thật: bấm xong coi như đã đặt lệnh. VD: nút TĂNG/GIẢM, xác nhận lệnh."
           cls="toggle-warning"
         />
       )}
-      {!["start", "end", "condition"].includes(type) && (
+      {!["start", "end", "condition", "direction"].includes(type) && (
         <Toggle
           checked={!!d.optional}
           onChange={(v) => onChange({ optional: v || undefined })}

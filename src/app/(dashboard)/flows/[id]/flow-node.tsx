@@ -3,7 +3,7 @@
 import { createContext, memo, useContext } from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import {
-  Camera, CircleDollarSign, CircleStop, Clock, Eye, GitBranch, Globe, Keyboard, MousePointerClick, Play, ScanText, ShieldAlert, TextCursorInput,
+  ArrowUpDown, Camera, CircleDollarSign, CircleStop, Clock, Eye, GitBranch, Globe, Keyboard, MousePointerClick, Play, ScanText, ShieldAlert, TextCursorInput,
   type LucideIcon,
 } from "lucide-react";
 import { NODE_META, nodeTitle, summarizeNode, type FlowNodeData, type FlowNodeType, type RunLogStatus } from "@/lib/flow";
@@ -20,6 +20,7 @@ export const NODE_ICONS: Record<FlowNodeType, LucideIcon> = {
   wait: Clock,
   readText: ScanText,
   order: CircleDollarSign,
+  direction: ArrowUpDown,
   condition: GitBranch,
   screenshot: Camera,
   end: CircleStop,
@@ -95,6 +96,15 @@ function FlowNodeCardImpl({ id, type, data, selected }: NodeProps<EditorNode>) {
           <div className="flex justify-between px-8 pb-1 text-[10px] font-semibold">
             <span className="text-success">Đúng</span>
             <span className="text-error">Sai</span>
+          </div>
+        </>
+      ) : type === "direction" ? (
+        <>
+          <Handle id="up" type="source" position={Position.Bottom} style={{ left: "28%" }} className={`${handleCls} !bg-success`} />
+          <Handle id="down" type="source" position={Position.Bottom} style={{ left: "72%" }} className={`${handleCls} !bg-error`} />
+          <div className="flex justify-between px-8 pb-1 text-[10px] font-semibold">
+            <span className="text-success">▲ TĂNG</span>
+            <span className="text-error">▼ GIẢM</span>
           </div>
         </>
       ) : (

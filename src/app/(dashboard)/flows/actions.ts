@@ -69,11 +69,17 @@ export async function deleteFlow(id: string) {
   redirect("/flows");
 }
 
-const runSchema = z.object({ flowId: z.string().min(1), accountId: z.string().min(1), dryRun: z.boolean(), loginFirst: z.boolean() });
+const runSchema = z.object({
+  flowId: z.string().min(1),
+  accountId: z.string().min(1),
+  dryRun: z.boolean(),
+  loginFirst: z.boolean(),
+  direction: z.enum(["UP", "DOWN"]).default("UP"),
+});
 
-export async function startFlowRun(input: z.infer<typeof runSchema>): Promise<{ commandId?: string; error?: string }> {
+export async function startFlowRun(input: z.input<typeof runSchema>): Promise<{ commandId?: string; error?: string }> {
   const user = await requireUser([...WRITE_ROLES]);
-  const { flowId, accountId, dryRun, loginFirst } = runSchema.parse(input);
+  const { flowId, accountId, dryRun, loginFirst, direction } = runSchema.parse(input);
   const [flow, account] = await Promise.all([
     prisma.flow.findUnique({ where: { id: flowId }, select: { graph: true } }),
     prisma.tradingAccount.findUnique({ where: { id: accountId }, select: { status: true } }),
@@ -87,7 +93,7 @@ export async function startFlowRun(input: z.infer<typeof runSchema>): Promise<{ 
   const busy = await prisma.command.findFirst({ where: { accountId, status: { in: ["PENDING", "PROCESSING"] } } });
   if (busy) return { error: "Tài khoản đang có lệnh khác chạy" };
 
-  const cmd = await prisma.command.create({ data: { type: "RUN_FLOW", accountId, payload: { flowId, dryRun, loginFirst } } });
+  const cmd = await prisma.command.create({ data: { type: "RUN_FLOW", accountId, payload: { flowId, dryRun, loginFirst, direction } } });
   await prisma.auditLog.create({
     data: { userId: user.id, action: dryRun ? "RUN_FLOW_DRY" : "RUN_FLOW_LIVE", entity: "Flow", entityId: flowId, diff: { accountId, commandId: cmd.id } },
   });
