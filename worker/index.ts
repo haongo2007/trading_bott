@@ -14,8 +14,13 @@ const APP_ORIGIN = process.env.APP_ORIGIN; // VD http://localhost:3000 — chặ
 const startedAt = Date.now();
 const sessions = new Set<LiveSession>();
 
+/** Health-check chỉ trả lời cho chính server (dashboard gọi qua 127.0.0.1), kể cả khi worker nghe 0.0.0.0. */
+function isLoopback(addr: string | undefined) {
+  return !!addr && (addr === "::1" || addr.startsWith("127.") || addr.startsWith("::ffff:127."));
+}
+
 const server = createServer((req, res) => {
-  if (req.url === "/health") {
+  if (req.url === "/health" && isLoopback(req.socket.remoteAddress)) {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
       JSON.stringify({
@@ -65,13 +70,36 @@ wss.on("connection", async (ws, req) => {
 
 const abort = new AbortController();
 
+/** Chiếm cổng TRƯỚC mọi việc khác: cổng đóng vai trò khoá "chỉ 1 worker".
+ *  Nếu worker khác đang chạy, tiến trình này thoát ngay — không đụng vào lệnh/phiên bot của worker kia. */
+function listenOrExit(): Promise<void> {
+  return new Promise((resolve) => {
+    let failed = false;
+    const onError = async (e: NodeJS.ErrnoException) => {
+      if (failed) return; // ws phát lại cùng lỗi trên WebSocketServer
+      failed = true;
+      if (e.code === "EADDRINUSE") {
+        log("worker", `Cổng ${PORT} đã có ứng dụng khác dùng (hoặc worker khác đang chạy). Đổi WORKER_PORT trong .env sang cổng trống (VD 3011), cập nhật WORKER_HTTP_URL và WORKER_PUBLIC_WS_URL theo cổng mới, rồi khởi động lại.`);
+      } else {
+        log("worker", `Không mở được cổng ${HOST}:${PORT}:`, e.message);
+      }
+      await prisma.$disconnect().catch(() => {});
+      process.exit(1);
+    };
+    server.on("error", onError);
+    wss.on("error", onError);
+    server.listen(PORT, HOST, () => resolve());
+  });
+}
+
 async function main() {
+  await listenOrExit();
   await prisma.$queryRaw`SELECT 1`;
   await recoverStaleCommands();
   await getBrowser();
   startCommandLoop(abort.signal);
   startScheduler(abort.signal);
-  server.listen(PORT, HOST, () => log("worker", `Sẵn sàng tại http://${HOST}:${PORT} (WS: /live, health: /health)`));
+  log("worker", `Sẵn sàng tại http://${HOST}:${PORT} (WS: /live, health: /health)`);
 }
 
 async function shutdown(signal: string) {

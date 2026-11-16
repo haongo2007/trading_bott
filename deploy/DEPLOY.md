@@ -86,7 +86,48 @@ pm2 install pm2-logrotate          # xoay vòng log
 
 Kiểm tra: `pm2 status`, `pm2 logs bot-worker --lines 50`, `curl -s 127.0.0.1:3001/health`, `curl -sI 127.0.0.1:3000/login`.
 
-## 5. Nginx + HTTPS
+## 5A. Truy cập thẳng bằng IP:cổng (không Nginx)
+
+Cần 2 cổng: **web** (dashboard) và **worker** (canvas "Trình duyệt trực tiếp" kết nối thẳng tới đây).
+Kiểm tra cổng còn trống trước — không có dòng nào in ra là trống:
+
+```bash
+sudo ss -ltnp | grep -E ':3010 |:3011 '
+```
+
+Ví dụ web ở **3010**, worker ở **3011** (nếu 3001 đã có ứng dụng khác dùng). Sửa `.env`:
+
+```bash
+WEB_PORT=3010
+WEB_HOST="0.0.0.0"
+WORKER_PORT=3011
+WORKER_HOST="0.0.0.0"
+WORKER_HTTP_URL="http://127.0.0.1:3011"
+WORKER_PUBLIC_WS_URL="ws://<IP-server>:3011/live"
+APP_ORIGIN="http://<IP-server>:3010"
+```
+
+Mở 2 cổng trên tường lửa (và trên firewall/Security Group của nhà cung cấp VPS nếu có):
+
+```bash
+sudo ufw allow 3010/tcp
+sudo ufw allow 3011/tcp
+```
+
+Khởi động lại PM2 để nhận cổng mới (PM2 tự đọc `WEB_PORT`/`WEB_HOST` từ `.env`, worker tự đọc `WORKER_*`):
+
+```bash
+pm2 delete bot-web bot-worker; pm2 start ecosystem.config.cjs && pm2 save
+```
+
+Mở `http://<IP-server>:3010`. Kiểm tra: `sudo ss -ltnp | grep -E ':3010 |:3011 '` phải thấy `0.0.0.0:3010` và `*:3011`.
+Nếu cổng worker bị trùng, `pm2 logs bot-worker` sẽ báo *"Cổng … đã có ứng dụng khác dùng"* và worker dừng — không ảnh hưởng ứng dụng kia.
+
+- `pm2 delete bot-web bot-worker` chỉ xoá 2 tiến trình của bot — **không dùng `pm2 delete all`** nếu server còn app khác chạy bằng PM2.
+- Cổng worker bắt buộc mở ra ngoài vì trình duyệt của bạn kết nối thẳng tới worker để xem canvas (có token ký HMAC, hết hạn 2 phút). `/health` của worker chỉ trả lời cho chính server.
+- ⚠️ Không có HTTPS: mật khẩu đăng nhập dashboard và hình ảnh canvas đi qua mạng **không mã hoá**. Nên chuyển sang mục 5B (tên miền + HTTPS) trước khi chạy với tài khoản sàn thật.
+
+## 5B. Nginx + HTTPS (khuyến nghị)
 
 Server đã có Nginx: chỉ cần thêm 1 site mới, không ảnh hưởng các site khác.
 
