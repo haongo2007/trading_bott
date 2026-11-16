@@ -50,7 +50,7 @@ export async function runBot(cmd: Command): Promise<{ ok: boolean; message: stri
   });
 
   let run: BotRun | null = existing;
-  const context = await newAccountContext(bot.account).catch((e) => {
+  const context = await newAccountContext(bot.account, { headlessRun: true }).catch((e) => {
     unlockAccount(bot.accountId, owner);
     throw e;
   });

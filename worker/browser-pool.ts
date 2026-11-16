@@ -17,7 +17,19 @@ export async function getBrowser(): Promise<Browser> {
   launching ??= chromium
     .launch({
       headless: process.env.WORKER_HEADLESS !== "false",
-      args: ["--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
+      args: [
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        // Giảm tải trên server không có GPU / ít RAM
+        "--disable-extensions",
+        "--disable-component-update",
+        "--disable-background-networking",
+        "--disable-default-apps",
+        "--disable-sync",
+        "--no-first-run",
+        "--mute-audio",
+        "--disable-features=Translate,MediaRouter,OptimizationHints,BackForwardCache",
+      ],
       ...(proxy && { proxy }),
     })
     .then((b) => {
@@ -84,7 +96,18 @@ let activeContexts = 0;
 
 export class CapacityError extends Error {}
 
-export async function newAccountContext(account: TradingAccount): Promise<BrowserContext> {
+/**
+ * Bot chạy nền không cần xem hình → có thể chặn ảnh/font/video để giảm CPU, RAM, băng thông.
+ * Bật bằng WORKER_BLOCK_HEAVY=true. Phiên trực tiếp (live view) không bao giờ bị chặn.
+ * Không ảnh hưởng canvas/biểu đồ vẽ bằng JS; chỉ chặn file ảnh/font/media tải từ mạng.
+ */
+const BLOCK_HEAVY = process.env.WORKER_BLOCK_HEAVY === "true";
+const HEAVY_TYPES = new Set(["image", "media", "font"]);
+
+export async function newAccountContext(
+  account: TradingAccount,
+  opts: { headlessRun?: boolean } = {},
+): Promise<BrowserContext> {
   if (activeContexts >= MAX_CONTEXTS) throw new CapacityError(`Đã đạt tối đa ${MAX_CONTEXTS} phiên trình duyệt`);
   activeContexts++;
   try {
@@ -99,6 +122,11 @@ export async function newAccountContext(account: TradingAccount): Promise<Browse
       storageState,
     });
     ctx.on("close", () => activeContexts--);
+    if (opts.headlessRun && BLOCK_HEAVY) {
+      await ctx.route("**/*", (route) =>
+        HEAVY_TYPES.has(route.request().resourceType()) ? route.abort() : route.continue(),
+      );
+    }
     return ctx;
   } catch (e) {
     activeContexts--;

@@ -10,7 +10,9 @@ import { ensureLoggedIn, isLoggedIn, readBalance } from "./login";
 import { inspectActiveElement, inspectAtPoint, type InspectResult } from "./page-scripts";
 
 const IDLE_MS = Number(process.env.LIVE_IDLE_MINUTES ?? 10) * 60_000;
-const MAX_BUFFERED = 4 * 1024 * 1024; // bỏ khung hình nếu mạng phía client chậm
+// Bỏ khung hình khi mạng phía client chậm. Giữ nhỏ: 4MB ≈ 40 khung JPEG dồn lại = trễ vài giây.
+const MAX_BUFFERED = 512 * 1024;
+const SCREENCAST_QUALITY = Number(process.env.WORKER_SCREENCAST_QUALITY ?? 55);
 const ALLOWED_KEYS = new Set([
   "Enter", "Backspace", "Tab", "Escape", "Delete", "Home", "End", "PageUp", "PageDown",
   "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Control+a", "Meta+a",
@@ -95,15 +97,19 @@ export class LiveSession {
 
     const cdp = await this.context.newCDPSession(page);
     this.cdp = cdp;
+    // Chỉ ack (= xin khung tiếp theo) khi khung hiện tại đã gửi xong qua mạng.
+    // Chromium sẽ không mã hoá khung mới nhanh hơn tốc độ mạng → giảm CPU và giảm trễ.
     cdp.on("Page.screencastFrame", ({ data, sessionId }) => {
+      const ack = () => cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
       if (this.ws.readyState === this.ws.OPEN && this.ws.bufferedAmount < MAX_BUFFERED) {
-        this.ws.send(Buffer.from(data, "base64"), { binary: true });
+        this.ws.send(Buffer.from(data, "base64"), { binary: true }, ack);
+      } else {
+        ack();
       }
-      cdp.send("Page.screencastFrameAck", { sessionId }).catch(() => {});
     });
     await cdp.send("Page.startScreencast", {
       format: "jpeg",
-      quality: 70,
+      quality: SCREENCAST_QUALITY,
       maxWidth: this.account.viewportWidth,
       maxHeight: this.account.viewportHeight,
     });
