@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft, ArrowRight, CircleDot, ClipboardCopy, Crosshair, Hand, LogIn, MousePointerClick,
-  RefreshCw, RotateCw, Save, Search, Trash2, Wifi, WifiOff,
+  RefreshCw, RotateCw, Save, Search, Trash2, Wifi, WifiOff, X,
 } from "lucide-react";
 import {
   ASSIGNABLE_FIELDS, CLOSE_CODES,
@@ -21,7 +21,17 @@ type Account = {
   viewportWidth: number;
   viewportHeight: number;
   hasSession: boolean;
-} & Record<AssignableField, string | null>;
+} & Partial<Record<AssignableField, string | null>>;
+
+/**
+ * Chế độ chọn selector cho Flow: ẩn phần ghi thao tác / gán selector tài khoản,
+ * phần tử được chọn sẽ trả về qua onUse cho ô đang chờ (target).
+ */
+export type PickerOptions = {
+  target: { key: string; label: string } | null;
+  onUse: (selector: string) => void;
+  onClose?: () => void;
+};
 
 type Conn = { state: "connecting" | "open" | "closed"; reason?: string };
 type Toast = { id: number; level: "info" | "success" | "error"; message: string };
@@ -31,7 +41,7 @@ const SPECIAL_KEYS = new Set([
   "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown",
 ]);
 
-export function LiveBrowser({ account }: { account: Account }) {
+export function LiveBrowser({ account, picker }: { account: Account; picker?: PickerOptions }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lastMove = useRef(0);
@@ -47,7 +57,7 @@ export function LiveBrowser({ account }: { account: Account }) {
   const [scale, setScale] = useState(1);
   const [url, setUrl] = useState("");
   const [urlInput, setUrlInput] = useState("");
-  const [mode, setMode] = useState<LiveMode>("interact");
+  const [mode, setMode] = useState<LiveMode>(() => (picker?.target ? "pick" : "interact"));
   const [busy, setBusy] = useState(false);
   const [hover, setHover] = useState<Rect | null>(null);
   const [highlight, setHighlight] = useState<Rect | null>(null);
@@ -58,11 +68,11 @@ export function LiveBrowser({ account }: { account: Account }) {
   const [tab, setTab] = useState<"element" | "steps" | "selectors">("element");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [selectors, setSelectors] = useState<Record<AssignableField, string | null>>(() => ({
-    usernameSelector: account.usernameSelector,
-    passwordSelector: account.passwordSelector,
-    submitSelector: account.submitSelector,
-    successSelector: account.successSelector,
-    balanceSelector: account.balanceSelector,
+    usernameSelector: account.usernameSelector ?? null,
+    passwordSelector: account.passwordSelector ?? null,
+    submitSelector: account.submitSelector ?? null,
+    successSelector: account.successSelector ?? null,
+    balanceSelector: account.balanceSelector ?? null,
   }));
   const [testResult, setTestResult] = useState<{ selector: string; count: number; error?: string } | null>(null);
 
@@ -233,6 +243,26 @@ export function LiveBrowser({ account }: { account: Account }) {
     }
   };
 
+  // Picker: mỗi khi có ô mới cần chọn → tự bật chế độ Chọn phần tử
+  const pickKey = picker?.target?.key;
+  const connOpen = conn.state === "open";
+  const [seenPickKey, setSeenPickKey] = useState(pickKey);
+  if (pickKey !== seenPickKey) {
+    // Điều chỉnh state ngay khi prop đổi (không cần effect)
+    setSeenPickKey(pickKey);
+    if (pickKey) {
+      setMode("pick");
+      setPicked(null);
+      setTab("element");
+    }
+  }
+  // Đồng bộ chế độ sang worker (kể cả khi kết nối mở sau khi đã có ô cần chọn)
+  useEffect(() => {
+    if (!pickKey || !connOpen || mode !== "pick") return;
+    send({ t: "mode", mode: "pick" });
+    canvasRef.current?.focus();
+  }, [pickKey, connOpen, mode, send]);
+
   const assign = async () => {
     if (!chosen) return;
     const res = await assignSelector(account.id, field, chosen);
@@ -334,6 +364,11 @@ export function LiveBrowser({ account }: { account: Account }) {
             <button className="btn btn-sm btn-success" disabled={!open} onClick={() => send({ t: "saveSession" })}>
               <Save className="size-4" /> Lưu phiên đăng nhập
             </button>
+            {picker?.onClose && (
+              <button className="btn btn-sm btn-ghost btn-square" onClick={picker.onClose} aria-label="Đóng trình duyệt">
+                <X className="size-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -394,7 +429,19 @@ export function LiveBrowser({ account }: { account: Account }) {
       {/* ───── Panel bên phải ───── */}
       <aside className="card h-fit bg-base-100 shadow-sm">
         <div className="card-body gap-4 p-4">
-          <div role="tablist" className="tabs-box tabs tabs-sm">
+          {picker && (
+            <div className={`alert alert-soft py-2 text-sm ${picker.target ? "alert-info" : ""}`}>
+              <Crosshair className="size-4" />
+              {picker.target ? (
+                <span>
+                  Đang chọn cho: <b>{picker.target.label}</b>. Click vào phần tử trên trang.
+                </span>
+              ) : (
+                <span>Bấm 🎯 cạnh ô selector của khối để chọn phần tử trên trang này.</span>
+              )}
+            </div>
+          )}
+          <div role="tablist" className={`tabs-box tabs tabs-sm ${picker ? "hidden" : ""}`}>
             <button role="tab" className={`tab ${tab === "element" ? "tab-active" : ""}`} onClick={() => setTab("element")}>
               Phần tử
             </button>
@@ -443,6 +490,17 @@ export function LiveBrowser({ account }: { account: Account }) {
                   <legend className="fieldset-legend">Selector sẽ dùng</legend>
                   <input className="input input-sm w-full font-mono text-xs" value={chosen} onChange={(e) => setChosen(e.target.value)} />
                 </fieldset>
+                {picker ? (
+                  <div className="flex gap-2">
+                    <button className="btn btn-sm btn-ghost flex-1" disabled={!chosen} onClick={() => send({ t: "testSelector", selector: chosen })}>
+                      <Search className="size-4" /> Thử
+                    </button>
+                    <button className="btn btn-sm btn-primary flex-1" disabled={!chosen || !picker.target} onClick={() => picker.onUse(chosen)}>
+                      {picker.target ? `Dùng cho “${picker.target.label}”` : "Chưa chọn ô"}
+                    </button>
+                  </div>
+                ) : (
+                  <>
                 <fieldset className="fieldset">
                   <legend className="fieldset-legend">Gán cho</legend>
                   <select className="select select-sm w-full" value={field} onChange={(e) => setField(e.target.value as AssignableField)}>
@@ -461,6 +519,8 @@ export function LiveBrowser({ account }: { account: Account }) {
                     Gán selector
                   </button>
                 </div>
+                  </>
+                )}
                 {testResult && testResult.selector === chosen && <TestResultBadge result={testResult} />}
               </div>
             ))}

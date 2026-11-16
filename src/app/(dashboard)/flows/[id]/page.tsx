@@ -23,7 +23,10 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
     prisma.tradingAccount.findMany({
       where: { status: { not: "DISABLED" } },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, platformName: true, status: true },
+      select: {
+        id: true, name: true, platformName: true, status: true,
+        loginMethod: true, viewportWidth: true, viewportHeight: true, storageStateEnc: true,
+      },
     }),
   ]);
   if (!flow) notFound();
@@ -42,7 +45,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
       </div>
       <FlowEditor
         flow={{ id: flow.id, name: flow.name, version: flow.version, graph }}
-        accounts={accounts}
+        accounts={accounts.map(({ storageStateEnc, ...a }) => ({ ...a, hasSession: !!storageStateEnc }))}
         canWrite={user.role !== "VIEWER"}
         canDelete={user.role === "ADMIN"}
       />

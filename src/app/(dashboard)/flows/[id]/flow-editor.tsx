@@ -7,7 +7,7 @@ import {
   type Connection, type Edge,
 } from "@xyflow/react";
 import {
-  CircleAlert, CircleCheck, CircleX, Copy, FileJson, Info, LoaderCircle, Play, Save, ShieldAlert, Square, Trash2, TriangleAlert,
+  CircleAlert, CircleCheck, CircleX, Copy, Crosshair, FileJson, Info, LoaderCircle, Play, Save, ShieldAlert, Square, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
   cloneSubgraph, NODE_META, NODE_TYPES, newNodeId, stepsToGraph, validateFlow,
@@ -15,9 +15,19 @@ import {
 } from "@/lib/flow";
 import { cancelFlowRun, deleteFlow, getFlowRun, saveFlow, startFlowRun, type FlowRunView } from "../actions";
 import { COLOR_CLASSES, FlowNodeCard, InvalidNodesContext, NODE_ICONS, RunStatusContext, type EditorNode } from "./flow-node";
-import { NodeInspector } from "./node-inspector";
+import { NodeInspector, type SelectorField } from "./node-inspector";
+import { LiveBrowser } from "../../accounts/[id]/browser/live-browser";
 
-type Account = { id: string; name: string; platformName: string; status: string };
+type Account = {
+  id: string;
+  name: string;
+  platformName: string;
+  status: string;
+  loginMethod: "FORM" | "SESSION";
+  viewportWidth: number;
+  viewportHeight: number;
+  hasSession: boolean;
+};
 type Props = {
   flow: { id: string; name: string; version: number; graph: FlowGraph };
   accounts: Account[];
@@ -83,6 +93,10 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
   const [dryRun, setDryRun] = useState(true);
   const [loginFirst, setLoginFirst] = useState(true);
   const [testDirection, setTestDirection] = useState<"UP" | "DOWN">("UP");
+  // Trình duyệt chọn phần tử: ô selector đang chờ (khối + trường)
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [pickTarget, setPickTarget] = useState<{ key: string; nodeId: string; field: SelectorField; label: string } | null>(null);
+  const browserRef = useRef<HTMLDivElement>(null);
   const [run, setRun] = useState<{ commandId: string; dryRun: boolean; view: FlowRunView | null } | null>(null);
   const [preview, setPreview] = useState<RunLogEntry | null>(null);
   const [importText, setImportText] = useState("");
@@ -199,6 +213,27 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
     [edges, nodes, rf, setEdges, setNodes],
   );
 
+  const startPick = (field: SelectorField, label: string) => {
+    if (!selected) return;
+    if (!accountId) return flash("error", "Chọn tài khoản sàn ở thanh chạy để mở trình duyệt");
+    const title = `${selected.data.label?.trim() || NODE_META[selected.type].label} → ${label}`;
+    setPickTarget({ key: `${selected.id}:${field}:${Date.now()}`, nodeId: selected.id, field, label: title });
+    setBrowserOpen(true);
+    setTimeout(() => browserRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
+
+  const usePickedSelector = (selector: string) => {
+    if (!pickTarget) return;
+    const { nodeId, field, label } = pickTarget;
+    if (!nodes.some((n) => n.id === nodeId)) {
+      setPickTarget(null);
+      return flash("error", "Khối đã bị xoá");
+    }
+    setNodes((ns) => ns.map((n) => (n.id === nodeId ? { ...n, data: { ...n.data, [field]: selector } } : n)));
+    setPickTarget(null);
+    flash("success", `Đã đặt ${label} = ${selector}`);
+  };
+
   const updateSelected = (patch: Partial<FlowNodeData>) => {
     if (!selected) return;
     setNodes((ns) =>
@@ -295,6 +330,12 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
       !window.confirm("Chưa có khối nào được đánh dấu “Thao tác đặt lệnh”, chạy thử vẫn sẽ bấm mọi nút. Vẫn chạy?")) return;
     if (!dryRun && !window.confirm("Chạy THẬT sẽ bấm cả các khối “Thao tác đặt lệnh”. Chỉ dùng với sàn giả lập hoặc khi bạn chắc chắn. Tiếp tục?")) return;
     if (dirty && !(await save())) return;
+    if (browserOpen) {
+      // Trình duyệt đang giữ khoá tài khoản → đóng trước, chờ worker nhả khoá
+      setBrowserOpen(false);
+      setPickTarget(null);
+      await new Promise((r) => setTimeout(r, 1500));
+    }
     let res: Awaited<ReturnType<typeof startFlowRun>>;
     try {
       res = await startFlowRun({ flowId: flow.id, accountId, dryRun, loginFirst, direction: testDirection });
@@ -393,7 +434,7 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
         {/* Chạy thử */}
         <div className="flex flex-wrap items-center gap-3 border-t border-base-300 px-3 py-2">
           <span className="text-sm font-semibold">Chạy trên</span>
-          <select className="select select-sm w-60" value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled={running}>
+          <select className="select select-sm w-60" value={accountId} onChange={(e) => setAccountId(e.target.value)} disabled={running || browserOpen}>
             {accounts.length === 0 && <option value="">Chưa có tài khoản</option>}
             {accounts.map((a) => (
               <option key={a.id} value={a.id}>
@@ -422,6 +463,17 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
               <option value="DOWN">▼ GIẢM</option>
             </select>
           </label>
+          <button
+            className={`btn btn-sm ${browserOpen ? "btn-active" : "btn-outline"}`}
+            onClick={() => {
+              setBrowserOpen((o) => !o);
+              setPickTarget(null);
+            }}
+            disabled={!accountId || running || !canWrite}
+            title="Mở trang sàn của tài khoản để chọn phần tử cho các khối"
+          >
+            <Crosshair className="size-4" /> {browserOpen ? "Đóng trình duyệt" : "Trình duyệt chọn phần tử"}
+          </button>
           <div className="ml-auto">
             {running ? (
               <button className="btn btn-sm btn-error" onClick={() => run && cancelFlowRun(run.commandId)}>
@@ -530,6 +582,8 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
                 onChange={updateSelected}
                 onDelete={deleteSelected}
                 onDuplicate={duplicateSelection}
+                onPick={canWrite && !running ? startPick : undefined}
+                pickingField={pickTarget?.nodeId === selected.id ? pickTarget.field : null}
               />
             ) : selectedNodes.length > 1 ? (
               <div className="space-y-3 text-sm">
@@ -577,6 +631,24 @@ function Editor({ flow, accounts, canWrite, canDelete }: Props) {
           </div>
         </aside>
       </div>
+
+      {/* ───── Trình duyệt chọn phần tử (dùng chung với màn hình tài khoản) ───── */}
+      {browserOpen && accountId && (
+        <div ref={browserRef} className="scroll-mt-4">
+          <LiveBrowser
+            key={accountId}
+            account={accounts.find((a) => a.id === accountId)!}
+            picker={{
+              target: pickTarget && { key: pickTarget.key, label: pickTarget.label },
+              onUse: usePickedSelector,
+              onClose: () => {
+                setBrowserOpen(false);
+                setPickTarget(null);
+              },
+            }}
+          />
+        </div>
+      )}
 
       {/* ───── Kết quả chạy ───── */}
       {run && (

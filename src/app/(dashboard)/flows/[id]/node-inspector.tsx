@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, Crosshair, Trash2 } from "lucide-react";
 import { COND_OPS, NODE_META, PRESS_KEYS, type FlowNodeData } from "@/lib/flow";
 import { COLOR_CLASSES, NODE_ICONS, type EditorNode } from "./flow-node";
 
@@ -16,9 +16,16 @@ type Props = {
   onChange: (patch: Partial<FlowNodeData>) => void;
   onDelete: () => void;
   onDuplicate?: () => void;
+  /** Mở trình duyệt để chọn phần tử cho một ô selector của khối. */
+  onPick?: (field: SelectorField, label: string) => void;
+  /** Ô selector đang chờ chọn trên trình duyệt (để tô sáng nút). */
+  pickingField?: SelectorField | null;
 };
 
-export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, onDuplicate }: Props) {
+export const SELECTOR_FIELDS = ["selector", "amountSelector", "upSelector", "downSelector", "confirmSelector"] as const;
+export type SelectorField = (typeof SELECTOR_FIELDS)[number];
+
+export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, onDuplicate, onPick, pickingField }: Props) {
   const { type, data: d } = node;
   const meta = NODE_META[type];
   const Icon = NODE_ICONS[type];
@@ -32,6 +39,32 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, on
   };
 
   const hasSelector = ["click", "fill", "waitFor", "readText"].includes(type);
+
+  /** Ô nhập selector + nút 🎯 chọn trên trình duyệt. */
+  const selectorInput = (k: SelectorField, label: string, placeholder?: string) => {
+    const picking = pickingField === k;
+    return (
+      <div className="join w-full">
+        <input
+          className="input input-sm join-item w-full font-mono text-xs"
+          value={str(k)}
+          onChange={set(k)}
+          placeholder={placeholder}
+        />
+        {onPick && !readOnly && (
+          <button
+            type="button"
+            className={`btn btn-sm join-item ${picking ? "btn-primary" : ""}`}
+            onClick={() => onPick(k, label)}
+            title="Chọn phần tử trên trình duyệt"
+            aria-label={`Chọn phần tử cho ${label}`}
+          >
+            <Crosshair className={`size-4 ${picking ? "animate-pulse" : ""}`} />
+          </button>
+        )}
+      </div>
+    );
+  };
   const hasTimeout = ["click", "fill", "waitFor", "readText", "goto", "order"].includes(type);
 
   return (
@@ -67,8 +100,8 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, on
       )}
 
       {hasSelector && (
-        <Field label="Selector" hint="Lấy bằng “Chọn phần tử” trong Trình duyệt trực tiếp">
-          <input className="input input-sm w-full font-mono text-xs" value={str("selector")} onChange={set("selector")} placeholder="#btn-up" />
+        <Field label="Selector" hint="Bấm 🎯 để chọn phần tử trực tiếp trên trang">
+          {selectorInput("selector", "Selector", "#btn-up")}
         </Field>
       )}
 
@@ -125,16 +158,16 @@ export function NodeInspector({ node, varNames, readOnly, onChange, onDelete, on
             amount = 10000, direction = UP. Khối này luôn được coi là thao tác đặt lệnh.
           </div>
           <Field label="Ô nhập số tiền (tuỳ chọn)">
-            <input className="input input-sm w-full font-mono text-xs" value={str("amountSelector")} onChange={set("amountSelector")} placeholder="#amount" />
+            {selectorInput("amountSelector", "Ô nhập số tiền", "#amount")}
           </Field>
           <Field label="Nút TĂNG (UP)">
-            <input className="input input-sm w-full font-mono text-xs" value={str("upSelector")} onChange={set("upSelector")} placeholder="#btn-up" />
+            {selectorInput("upSelector", "Nút TĂNG", "#btn-up")}
           </Field>
           <Field label="Nút GIẢM (DOWN)">
-            <input className="input input-sm w-full font-mono text-xs" value={str("downSelector")} onChange={set("downSelector")} placeholder="#btn-down" />
+            {selectorInput("downSelector", "Nút GIẢM", "#btn-down")}
           </Field>
           <Field label="Nút xác nhận (tuỳ chọn)" hint="Nếu sàn hiện hộp thoại xác nhận sau khi bấm">
-            <input className="input input-sm w-full font-mono text-xs" value={str("confirmSelector")} onChange={set("confirmSelector")} />
+            {selectorInput("confirmSelector", "Nút xác nhận")}
           </Field>
         </>
       )}
