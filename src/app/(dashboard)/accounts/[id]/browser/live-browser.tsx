@@ -17,7 +17,7 @@ import { createFlowFromSteps } from "../../../flows/actions";
 type Account = {
   id: string;
   name: string;
-  loginMethod: "FORM" | "SESSION";
+  loginMethod: "FORM" | "SESSION" | "NONE";
   viewportWidth: number;
   viewportHeight: number;
   hasSession: boolean;

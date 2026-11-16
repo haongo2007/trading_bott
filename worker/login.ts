@@ -8,10 +8,18 @@ import { parseBalance } from "@/lib/balance";
 import { log, newAccountContext } from "./browser-pool";
 
 export type LoginOutcome =
-  | { ok: true; via: "SESSION" | "FORM"; balance: number | null; balanceText: string | null }
+  | { ok: true; via: LoginVia; balance: number | null; balanceText: string | null }
   | { ok: false; error: string; screenshot?: string };
 
 const STORAGE_DIR = process.env.STORAGE_DIR ?? "storage";
+
+export type LoginVia = "SESSION" | "FORM" | "NONE";
+
+export const LOGIN_VIA_LABELS: Record<LoginVia, string> = {
+  SESSION: "bằng phiên đã lưu",
+  FORM: "bằng form",
+  NONE: "không cần đăng nhập",
+};
 
 /** Đã đăng nhập chưa? Ưu tiên successSelector; nếu không có thì dùng heuristic. */
 export async function isLoggedIn(page: Page, account: TradingAccount, timeoutMs: number): Promise<boolean> {
@@ -66,8 +74,14 @@ export async function readBalance(page: Page, account: TradingAccount) {
 }
 
 /** Đảm bảo page đang đăng nhập: thử phiên đã lưu trước, nếu không được thì đăng nhập bằng form. */
-export async function ensureLoggedIn(page: Page, account: TradingAccount): Promise<"SESSION" | "FORM"> {
+export async function ensureLoggedIn(page: Page, account: TradingAccount): Promise<LoginVia> {
   const timeout = account.loginTimeoutSec * 1000;
+
+  // Không cần đăng nhập: chỉ mở trang giao dịch (vẫn dùng cookie đã lưu nếu có)
+  if (account.loginMethod === "NONE") {
+    await page.goto(account.tradeUrl, { waitUntil: "domcontentloaded", timeout });
+    return "NONE";
+  }
 
   if (account.storageStateEnc) {
     await page.goto(account.tradeUrl, { waitUntil: "domcontentloaded", timeout });

@@ -16,9 +16,9 @@ export const accountSchema = z
     platformName: z.string().trim().min(1, "Bắt buộc").max(100),
     loginUrl: httpUrl,
     tradeUrl: httpUrl,
-    username: z.string().trim().min(1, "Bắt buộc").max(255),
+    username: z.string().trim().max(255),
     password: z.string().max(255).optional().transform((v) => (v ? v : null)),
-    loginMethod: z.enum(["FORM", "SESSION"]),
+    loginMethod: z.enum(["FORM", "SESSION", "NONE"]),
     usernameSelector: optionalText(1024),
     passwordSelector: optionalText(1024),
     submitSelector: optionalText(1024),
@@ -35,6 +35,9 @@ export const accountSchema = z
     disabled: z.preprocess((v) => v === "on" || v === true, z.boolean()),
   })
   .superRefine((data, ctx) => {
+    if (data.loginMethod !== "NONE" && !data.username) {
+      ctx.addIssue({ code: "custom", path: ["username"], message: "Bắt buộc" });
+    }
     if (data.loginMethod === "FORM") {
       for (const key of ["usernameSelector", "passwordSelector", "submitSelector"] as const) {
         if (!data[key]) ctx.addIssue({ code: "custom", path: [key], message: "Bắt buộc khi đăng nhập bằng form" });

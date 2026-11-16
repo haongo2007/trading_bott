@@ -74,7 +74,7 @@ export class LiveSession {
 
     this.send({ t: "ready", viewport: { width: this.account.viewportWidth, height: this.account.viewportHeight } });
     this.touch();
-    const startUrl = this.account.storageStateEnc ? this.account.tradeUrl : this.account.loginUrl;
+    const startUrl = this.account.storageStateEnc || this.account.loginMethod === "NONE" ? this.account.tradeUrl : this.account.loginUrl;
     await this.page.goto(startUrl, { waitUntil: "domcontentloaded" }).catch((e) => this.toast("error", e.message));
     log("live", this.account.id, "Mở phiên trình duyệt trực tiếp");
   }

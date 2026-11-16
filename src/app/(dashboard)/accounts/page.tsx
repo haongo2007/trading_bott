@@ -111,7 +111,7 @@ async function AccountsContent() {
                       </td>
                       <td>
                         <span className="badge badge-ghost badge-sm">
-                          {a.loginMethod === "FORM" ? "Tự điền form" : "Phiên đã lưu"}
+                          {a.loginMethod === "FORM" ? "Tự điền form" : a.loginMethod === "NONE" ? "Không cần đăng nhập" : "Phiên đã lưu"}
                         </span>
                       </td>
                       <td>

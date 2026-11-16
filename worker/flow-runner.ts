@@ -190,7 +190,7 @@ export async function runFlowCommand(commandId: string, accountId: string, paylo
       await saveStorageState(context, account.id);
       result.logs.push({
         seq: 0, nodeId: "__login", type: "start", title: "Đăng nhập", status: "ok",
-        message: via === "SESSION" ? "Dùng phiên đã lưu" : "Đăng nhập bằng form", ms: Date.now() - t0, screenshot: await shoot(0),
+        message: via === "SESSION" ? "Dùng phiên đã lưu" : via === "NONE" ? "Không cần đăng nhập — mở trang giao dịch" : "Đăng nhập bằng form", ms: Date.now() - t0, screenshot: await shoot(0),
       });
     }
     result.phase = "running";

@@ -23,7 +23,7 @@ type Account = {
   name: string;
   platformName: string;
   status: string;
-  loginMethod: "FORM" | "SESSION";
+  loginMethod: "FORM" | "SESSION" | "NONE";
   viewportWidth: number;
   viewportHeight: number;
   hasSession: boolean;

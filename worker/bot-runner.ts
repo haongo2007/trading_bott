@@ -8,7 +8,7 @@ import {
   type DirectionConfig, type DirectionMode, type OrderOutcome, type StakeConfig, type StakeMode, type StopReasonKind,
 } from "@/lib/strategy";
 import { log, newAccountContext, tryLockAccount, unlockAccount } from "./browser-pool";
-import { ensureLoggedIn, readBalance, saveStorageState } from "./login";
+import { ensureLoggedIn, LOGIN_VIA_LABELS, readBalance, saveStorageState } from "./login";
 import { accountVars, loadGraph, makeShooter, publicVars, runGraph, type FlowVars } from "./flow-runner";
 import { describeAiError, predictDirection, type AiPredictionResult } from "./ai-direction";
 import { esc, money, notify } from "./notifier";
@@ -83,7 +83,7 @@ export async function runBot(cmd: Command): Promise<{ ok: boolean; message: stri
           targetAmount: limits.target, lossLimit: limits.lossLimit, startedAt: new Date(),
         },
       });
-      await logRun(`Bắt đầu phiên ${bot.dryRun ? "CHẠY THỬ (giả lập)" : "THẬT"} — đăng nhập ${via === "SESSION" ? "bằng phiên đã lưu" : "bằng form"}, số dư ${fmt(startReal)}. Mục tiêu ${limits.target > 0 ? `+${fmt(limits.target)}` : "tắt"}, cắt lỗ ${limits.lossLimit > 0 ? `-${fmt(limits.lossLimit)}` : "tắt"}`);
+      await logRun(`Bắt đầu phiên ${bot.dryRun ? "CHẠY THỬ (giả lập)" : "THẬT"} — đăng nhập ${LOGIN_VIA_LABELS[via]}, số dư ${fmt(startReal)}. Mục tiêu ${limits.target > 0 ? `+${fmt(limits.target)}` : "tắt"}, cắt lỗ ${limits.lossLimit > 0 ? `-${fmt(limits.lossLimit)}` : "tắt"}`);
     } else {
       run = await prisma.botRun.update({ where: { id: run.id }, data: { status: "RUNNING", stopReason: null, error: null, endedAt: null } });
       await logRun(`Tiếp tục phiên hôm nay — số dư hiện tại ${fmt(startReal)} (mục tiêu/cắt lỗ giữ theo số dư đầu ngày ${fmt(num(run.startBalance))})`);

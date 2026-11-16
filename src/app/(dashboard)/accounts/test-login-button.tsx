@@ -26,7 +26,7 @@ export function TestLoginButton({ accountId, disabled }: { accountId: string; di
       const r = view.result;
       setState(
         r?.ok
-          ? { phase: "done", ok: true, message: `Đăng nhập thành công (${r.via === "SESSION" ? "phiên đã lưu" : "form"})`, detail: r.balanceText ? `Số dư: ${r.balanceText}` : undefined }
+          ? { phase: "done", ok: true, message: r.via === "NONE" ? "Mở trang giao dịch thành công (không cần đăng nhập)" : `Đăng nhập thành công (${r.via === "SESSION" ? "phiên đã lưu" : "form"})`, detail: r.balanceText ? `Số dư: ${r.balanceText}` : undefined }
           : { phase: "done", ok: false, message: r?.error ?? "Đăng nhập thất bại", detail: r?.screenshot ? `Ảnh chụp lỗi: ${r.screenshot}` : undefined },
       );
       router.refresh();

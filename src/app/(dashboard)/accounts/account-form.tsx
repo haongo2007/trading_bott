@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useState } from "react";
-import { CircleAlert, Cookie, Globe, KeyRound, Monitor, MousePointerClick, Save, ShieldCheck, StickyNote, User } from "lucide-react";
+import { CircleAlert, Cookie, DoorOpen, Globe, KeyRound, Monitor, MousePointerClick, Save, ShieldCheck, StickyNote, User } from "lucide-react";
 import type { AccountFormState } from "@/lib/validation/account";
 import { PasswordInput } from "@/components/password-input";
 
@@ -12,7 +12,7 @@ export type AccountFormValues = {
   loginUrl: string;
   tradeUrl: string;
   username: string;
-  loginMethod: "FORM" | "SESSION";
+  loginMethod: "FORM" | "SESSION" | "NONE";
   usernameSelector: string;
   passwordSelector: string;
   submitSelector: string;
@@ -107,7 +107,7 @@ export function AccountForm({ action, initial, isEdit }: Props) {
 
         <div className="sm:col-span-2">
           <div className="fieldset-legend mb-2 text-xs font-semibold">Cách đăng nhập</div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
             <MethodCard
               value="FORM"
               current={method}
@@ -123,6 +123,14 @@ export function AccountForm({ action, initial, isEdit }: Props) {
               icon={<Cookie className="size-5" />}
               title="Phiên đã lưu"
               desc="Đăng nhập tay 1 lần qua canvas, bot dùng lại cookie phiên."
+            />
+            <MethodCard
+              value="NONE"
+              current={method}
+              onChange={setMethod}
+              icon={<DoorOpen className="size-5" />}
+              title="Không cần đăng nhập"
+              desc="Tài khoản sandbox / trang dùng thử: bot chỉ mở trang giao dịch."
             />
           </div>
         </div>
@@ -236,9 +244,9 @@ function MethodCard({
   title,
   desc,
 }: {
-  value: "FORM" | "SESSION";
+  value: "FORM" | "SESSION" | "NONE";
   current: string;
-  onChange: (v: "FORM" | "SESSION") => void;
+  onChange: (v: "FORM" | "SESSION" | "NONE") => void;
   icon: React.ReactNode;
   title: string;
   desc: string;

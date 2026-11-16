@@ -33,6 +33,7 @@ model User {
 enum LoginMethod {
   FORM // tự điền username/password theo selector
   SESSION // dùng phiên đăng nhập đã lưu (cookie/localStorage)
+  NONE // không cần đăng nhập (tài khoản sandbox / trang công khai) — chỉ mở tradeUrl
 }
 
 enum AccountStatus {

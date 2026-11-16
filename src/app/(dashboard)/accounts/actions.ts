@@ -20,13 +20,13 @@ export async function createAccount(_prev: AccountFormState, formData: FormData)
   const parsed = parse(formData);
   if (!parsed.success) return { errors: z.flattenError(parsed.error).fieldErrors };
   const { username, password, disabled, ...rest } = parsed.data;
-  if (!password) return { errors: { password: ["Bắt buộc"] } };
+  if (!password && rest.loginMethod !== "NONE") return { errors: { password: ["Bắt buộc"] } };
 
   const account = await prisma.tradingAccount.create({
     data: {
       ...rest,
       usernameEnc: encrypt(username),
-      passwordEnc: encrypt(password),
+      passwordEnc: encrypt(password ?? ""),
       status: disabled ? "DISABLED" : "UNVERIFIED",
     },
   });
